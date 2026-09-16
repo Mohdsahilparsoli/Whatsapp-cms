@@ -1,0 +1,288 @@
+import type {
+  Campaign,
+  Conversation,
+  MessageRecord,
+  QueueJob,
+  Template,
+} from "@/types";
+
+export const templates: Template[] = [
+  {
+    id: "t1",
+    name: "festive_offer_2026",
+    language: "English",
+    category: "Marketing",
+    status: "approved",
+    updatedAt: "2026-09-08",
+    header: "Festive Week is here",
+    body: "Hi {{1}}, our festive sale is live. Get flat {{2}}% off on your favourites until {{3}}. Tap below to shop.",
+    footer: "Reply STOP to opt out",
+    variables: ["Customer name", "Discount %", "End date"],
+  },
+  {
+    id: "t2",
+    name: "order_shipped_update",
+    language: "English",
+    category: "Utility",
+    status: "approved",
+    updatedAt: "2026-09-02",
+    header: "Your order is on the way",
+    body: "Hi {{1}}, order {{2}} has been shipped and will arrive by {{3}}. Track it anytime from your account.",
+    footer: "Support: 1800-000-000",
+    variables: ["Customer name", "Order ID", "Delivery date"],
+  },
+  {
+    id: "t3",
+    name: "cart_reminder_hi",
+    language: "Hindi",
+    category: "Marketing",
+    status: "approved",
+    updatedAt: "2026-08-27",
+    body: "नमस्ते {{1}}, आपकी कार्ट में {{2}} आइटम रह गए हैं। आज ही ऑर्डर पूरा करें।",
+    footer: "रुकने के लिए STOP भेजें",
+    variables: ["Customer name", "Item count"],
+  },
+  {
+    id: "t4",
+    name: "appointment_reminder",
+    language: "English",
+    category: "Utility",
+    status: "pending",
+    updatedAt: "2026-09-11",
+    body: "Hi {{1}}, this is a reminder for your appointment on {{2}} at {{3}}.",
+    variables: ["Customer name", "Date", "Time"],
+  },
+  {
+    id: "t5",
+    name: "flash_sale_blast",
+    language: "English",
+    category: "Marketing",
+    status: "rejected",
+    updatedAt: "2026-08-30",
+    body: "BUY NOW!!! {{1}} — biggest sale ever, limited stock!!!",
+    variables: ["Offer"],
+  },
+  {
+    id: "t6",
+    name: "login_code_verify",
+    language: "English",
+    category: "Authentication",
+    status: "approved",
+    updatedAt: "2026-07-19",
+    body: "{{1}} is your verification code. It expires in 10 minutes.",
+    variables: ["Code"],
+  },
+];
+
+export const campaigns: Campaign[] = [
+  {
+    id: "cm1",
+    name: "Festive Drop 2026",
+    audience: "Festive campaign 2026",
+    audienceSize: 3240,
+    templateId: "t1",
+    templateName: "festive_offer_2026",
+    schedule: "2026-09-12 10:00",
+    status: "running",
+    sent: 2410,
+    delivered: 2288,
+    read: 1504,
+    failed: 122,
+    createdAt: "2026-09-10",
+  },
+  {
+    id: "cm2",
+    name: "Cart reminder — September",
+    audience: "Cart abandoners (30 days)",
+    audienceSize: 912,
+    templateId: "t3",
+    templateName: "cart_reminder_hi",
+    schedule: "2026-09-16 18:30",
+    status: "scheduled",
+    sent: 0,
+    delivered: 0,
+    read: 0,
+    failed: 0,
+    createdAt: "2026-09-13",
+  },
+  {
+    id: "cm3",
+    name: "Order updates — weekly batch",
+    audience: "All opted-in contacts",
+    audienceSize: 8104,
+    templateId: "t2",
+    templateName: "order_shipped_update",
+    schedule: "2026-09-08 09:00",
+    status: "completed",
+    sent: 8104,
+    delivered: 7960,
+    read: 5412,
+    failed: 144,
+    createdAt: "2026-09-07",
+  },
+  {
+    id: "cm4",
+    name: "VIP early access",
+    audience: "VIP customers",
+    audienceSize: 186,
+    templateId: "t1",
+    templateName: "festive_offer_2026",
+    schedule: "2026-09-14 11:00",
+    status: "paused",
+    sent: 96,
+    delivered: 91,
+    read: 64,
+    failed: 5,
+    createdAt: "2026-09-13",
+  },
+  {
+    id: "cm5",
+    name: "Delhi store invite",
+    audience: "Store walk-ins — Delhi",
+    audienceSize: 540,
+    templateId: "t2",
+    templateName: "order_shipped_update",
+    schedule: "—",
+    status: "draft",
+    sent: 0,
+    delivered: 0,
+    read: 0,
+    failed: 0,
+    createdAt: "2026-09-14",
+  },
+  {
+    id: "cm6",
+    name: "Monsoon Sale",
+    audience: "All opted-in contacts",
+    audienceSize: 7800,
+    templateId: "t1",
+    templateName: "festive_offer_2026",
+    schedule: "2026-08-18 09:30",
+    status: "completed",
+    sent: 7800,
+    delivered: 7610,
+    read: 4980,
+    failed: 190,
+    createdAt: "2026-08-16",
+  },
+];
+
+const statusPool = ["delivered", "read", "sent", "failed", "queued"] as const;
+
+export const messageRecords: MessageRecord[] = Array.from({ length: 48 }, (_, i) => {
+  const status = statusPool[i % statusPool.length];
+  const campaign = campaigns[i % 4];
+  return {
+    id: `msg${i + 1}`,
+    recipientName: `${["Aarav Sharma", "Diya Nair", "Rohan Reddy", "Isha Kapoor", "Kabir Iyer", "Meera Singh"][i % 6]}`,
+    recipientPhone: `+91 9${(812000000 + i * 4317).toString().slice(0, 9)}`,
+    campaignName: campaign.name,
+    preview:
+      status === "failed"
+        ? "Hi Aarav, our festive sale is live…"
+        : "Hi there, your order has been shipped…",
+    status,
+    sentAt: `2026-09-${((i % 13) + 1).toString().padStart(2, "0")} ${((i % 12) + 8)
+      .toString()
+      .padStart(2, "0")}:${((i * 7) % 60).toString().padStart(2, "0")}`,
+    error: status === "failed" ? "131026 — Message undeliverable (number not on WhatsApp)" : undefined,
+    timeline: [
+      { label: "Queued", time: "10:02:11" },
+      { label: "Sent to WhatsApp", time: "10:02:14" },
+      ...(status === "failed"
+        ? [{ label: "Failed", time: "10:02:19" }]
+        : [{ label: "Delivered", time: "10:02:21" }]),
+      ...(status === "read" ? [{ label: "Read", time: "10:14:03" }] : []),
+    ],
+  };
+});
+
+export const queueJobs: QueueJob[] = [
+  { id: "q1", campaignName: "Festive Drop 2026", batchSize: 250, status: "processing", attempts: 1, lastRunAt: "2026-09-15 11:42" },
+  { id: "q2", campaignName: "Festive Drop 2026", batchSize: 250, status: "queued", attempts: 0, lastRunAt: "—" },
+  { id: "q3", campaignName: "VIP early access", batchSize: 100, status: "completed", attempts: 1, lastRunAt: "2026-09-14 11:08" },
+  { id: "q4", campaignName: "Cart reminder — September", batchSize: 250, status: "queued", attempts: 0, lastRunAt: "—" },
+  { id: "q5", campaignName: "Order updates — weekly batch", batchSize: 500, status: "failed", attempts: 3, lastRunAt: "2026-09-08 09:21", error: "Rate limit reached — retry scheduled" },
+  { id: "q6", campaignName: "Monsoon Sale", batchSize: 500, status: "completed", attempts: 1, lastRunAt: "2026-08-18 09:44" },
+  { id: "q7", campaignName: "Festive Drop 2026", batchSize: 250, status: "queued", attempts: 0, lastRunAt: "—" },
+  { id: "q8", campaignName: "Order updates — weekly batch", batchSize: 500, status: "completed", attempts: 2, lastRunAt: "2026-09-08 09:02" },
+];
+
+export const conversations: Conversation[] = [
+  {
+    id: "cv1",
+    contactName: "Aarav Sharma",
+    phone: "+91 98110 22331",
+    unread: 2,
+    lastMessageAt: "11:48",
+    consent: "opted_in",
+    tags: ["vip", "repeat-buyer"],
+    messages: [
+      { id: "m1", from: "agent", text: "Hi Aarav, our festive sale is live. Flat 30% off until 20 Sep.", time: "10:02" },
+      { id: "m2", from: "customer", text: "Is the offer valid on the blue jacket?", time: "11:40" },
+      { id: "m3", from: "customer", text: "Also do you deliver to Dehradun?", time: "11:48" },
+    ],
+  },
+  {
+    id: "cv2",
+    contactName: "Diya Nair",
+    phone: "+91 90045 77120",
+    unread: 0,
+    lastMessageAt: "09:12",
+    consent: "opted_in",
+    tags: ["newsletter"],
+    messages: [
+      { id: "m1", from: "agent", text: "Your order #48219 has been shipped.", time: "08:50" },
+      { id: "m2", from: "customer", text: "Thanks!", time: "09:12" },
+    ],
+  },
+  {
+    id: "cv3",
+    contactName: "Rohan Reddy",
+    phone: "+91 77380 45512",
+    unread: 1,
+    lastMessageAt: "Yesterday",
+    consent: "pending",
+    tags: ["new-customer"],
+    messages: [
+      { id: "m1", from: "customer", text: "Hi, I saw your store ad. What are the timings?", time: "18:22" },
+    ],
+  },
+  {
+    id: "cv4",
+    contactName: "Isha Kapoor",
+    phone: "+91 96500 11290",
+    unread: 0,
+    lastMessageAt: "Mon",
+    consent: "opted_out",
+    tags: ["cart-abandoner"],
+    messages: [
+      { id: "m1", from: "agent", text: "You left 2 items in your cart.", time: "14:03" },
+      { id: "m2", from: "customer", text: "STOP", time: "14:20" },
+      { id: "m3", from: "agent", text: "You have been opted out of marketing messages.", time: "14:20" },
+    ],
+  },
+  {
+    id: "cv5",
+    contactName: "Kabir Iyer",
+    phone: "+91 88220 66410",
+    unread: 0,
+    lastMessageAt: "Sun",
+    consent: "opted_in",
+    tags: ["offline-store"],
+    messages: [
+      { id: "m1", from: "customer", text: "Do you have size 42 in stock?", time: "12:11" },
+      { id: "m2", from: "agent", text: "Yes, we do. Want us to reserve it?", time: "12:30" },
+    ],
+  },
+];
+
+export const dailyStats = [
+  { label: "Mon", sent: 1240, delivered: 1190, read: 780 },
+  { label: "Tue", sent: 1860, delivered: 1802, read: 1120 },
+  { label: "Wed", sent: 940, delivered: 905, read: 540 },
+  { label: "Thu", sent: 2310, delivered: 2240, read: 1490 },
+  { label: "Fri", sent: 2780, delivered: 2680, read: 1810 },
+  { label: "Sat", sent: 1520, delivered: 1470, read: 990 },
+  { label: "Sun", sent: 680, delivered: 651, read: 410 },
+];

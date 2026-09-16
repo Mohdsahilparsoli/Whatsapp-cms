@@ -1,0 +1,100 @@
+// WhatsApp CMS — database schema
+//
+// Phase 1 scope: Client module (Super Admin ⇄ Clients) + Client Admin login.
+// Phase 2 scope: Super Admin login (AdminUser below) — a single, real,
+// database-backed admin account. There is deliberately no "create another
+// admin" flow anywhere in the app; see scripts/create-admin.ts and
+// scripts/reset-admin-password.ts for how the one admin account is
+// provisioned and recovered, from the terminal only.
+//
+// Everything else (contacts, templates, campaigns, subscriptions, etc.) is
+// still frontend-only / localStorage in this phase, and will move to the
+// database in a later phase.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ClientStatus {
+  active
+  suspended
+  expired
+}
+
+/// A client account created by the Super Admin. Each row is one business
+/// (tenant) with its own login (userId + passwordHash) and its own CMS
+/// workspace.
+model Client {
+  id           String       @id @default(cuid())
+  name         String
+  userId       String       @unique
+  passwordHash String
+  email        String
+  phone        String
+  startDate    DateTime     @db.Date
+  expiryDate   DateTime     @db.Date
+  status       ClientStatus @default(active)
+  messagesSent Int          @default(0)
+  contacts     Int          @default(0)
+  plan         String       @default("Free Trial")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions Session[]
+
+  @@map("clients")
+}
+
+/// Backs the httpOnly login cookie for a Client Admin. One row per active
+/// login; deleting the row (logout, or expiry) invalidates the session.
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([clientId])
+  @@map("sessions")
+}
+
+/// The single Super Admin account. Deliberately no "role" field and no
+/// second row is ever expected — there is exactly one admin, provisioned via
+/// `npm run create-admin` (terminal only, refuses to run if a row already
+/// exists) and recovered via `npm run reset-admin-password`.
+model AdminUser {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  passwordHash String
+  name         String
+  email        String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions AdminSession[]
+
+  @@map("admin_users")
+}
+
+/// Backs the httpOnly login cookie for the Super Admin. Same pattern as
+/// `Session`, kept as a separate table/cookie so an admin login and a client
+/// login can never be confused with each other.
+model AdminSession {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  adminId   String
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  @@index([adminId])
+  @@map("admin_sessions")
+}
