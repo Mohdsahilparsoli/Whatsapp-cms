@@ -123,12 +123,32 @@ async function main() {
     });
   }
 
+  // A handful of sample contacts on the demo client, so Contacts has
+  // something to show right after seeding.
+  const demoClient = await prisma.client.findUnique({ where: { userId: "clientdemo" } });
+  if (demoClient) {
+    const sampleContacts = [
+      { phone: "+91 9700000000", name: "Aarav Sharma", tags: ["new-customer"], consent: "opted_in" as const },
+      { phone: "+91 9700137911", name: "Diya Iyer", tags: ["vip"], consent: "opted_in" as const },
+      { phone: "+91 9700275822", name: "Rohan Khan", tags: ["cart-abandoner"], consent: "opted_in" as const },
+      { phone: "+91 9700413733", name: null, tags: [], consent: "pending" as const },
+    ];
+    for (const c of sampleContacts) {
+      await prisma.contact.upsert({
+        where: { clientId_phone: { clientId: demoClient.id, phone: c.phone } },
+        update: {},
+        create: { ...c, clientId: demoClient.id },
+      });
+    }
+  }
+
   console.log(`\nSeeded ${clients.length} clients. They can all log in with:\n`);
   for (const c of clients) {
     console.log(`  User ID: ${c.userId.padEnd(14)}  Password: ${DEFAULT_PASSWORD}`);
   }
   console.log(
-    "\nChange these from the Clients page (Reset button) before using this app for anything real.\n"
+    "\nChange these from the Clients page (Reset button) before using this app for anything real.\n" +
+      "clientdemo also has a few sample contacts to try the Contacts page with.\n"
   );
 }
 

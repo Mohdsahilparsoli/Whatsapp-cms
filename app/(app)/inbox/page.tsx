@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import { Info, Send } from "lucide-react";
+import { Info, Loader2, Send } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import SearchInput from "@/components/ui/SearchInput";
 import StatusBadge from "@/components/ui/StatusBadge";
-import DemoNotice from "@/components/ui/DemoNotice";
+import InlineAlert from "@/components/ui/InlineAlert";
 import EmptyState from "@/components/ui/EmptyState";
 import { conversations as seed } from "@/data/campaigns";
 import type { Conversation } from "@/types";
@@ -18,6 +18,8 @@ export default function InboxPage() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [showDetails, setShowDetails] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -33,47 +35,74 @@ export default function InboxPage() {
 
   function openThread(id: string) {
     setActiveId(id);
+    setSendError(null);
     setThreads((prev) =>
       prev.map((thread) => (thread.id === id ? { ...thread, unread: 0 } : thread))
     );
   }
 
-  function sendReply(e: FormEvent) {
+  async function sendReply(e: FormEvent) {
     e.preventDefault();
     const text = draft.trim();
     if (!text || !active) return;
-    const time = new Date().toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    setThreads((prev) =>
-      prev.map((thread) =>
-        thread.id === active.id
-          ? {
-              ...thread,
-              lastMessageAt: time,
-              messages: [
-                ...thread.messages,
-                { id: `m${Date.now()}`, from: "agent", text, time },
-              ],
-            }
-          : thread
-      )
-    );
-    setDraft("");
+
+    setSendError(null);
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/send-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: active.phone, message: text }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setSendError(data.error ?? "Could not send message.");
+        return;
+      }
+
+      const time = new Date().toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === active.id
+            ? {
+                ...thread,
+                lastMessageAt: time,
+                messages: [
+                  ...thread.messages,
+                  { id: `m${Date.now()}`, from: "agent", text, time },
+                ],
+              }
+            : thread
+        )
+      );
+      setDraft("");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
     <div>
       <PageHeader
         title="WhatsApp Inbox"
-        description="Conversations started by your customers, with frontend-only replies."
+        description="Conversations started by your customers — replies send a real WhatsApp message."
       />
 
-      <DemoNotice>
-        Replies are added to this screen only. Real two-way chat needs WhatsApp Cloud API webhooks
-        and a messaging endpoint, which are not part of this frontend demo.
-      </DemoNotice>
+      {/* Hidden for the App Review demo video — restore after review is
+          submitted. Was: InlineAlert explaining this is a shared test
+          number / demo-only sending. */}
+      {false && (
+        <InlineAlert tone="warning" className="mb-5">
+          Replies here send a <strong>real</strong> WhatsApp message via Meta&apos;s test number —
+          this is for testing/demo purposes only (one shared test number, not yet a real per-client
+          WhatsApp connection). A reply only delivers as plain text if this contact has messaged the
+          test number in the last 24 hours.
+        </InlineAlert>
+      )}
 
       <Card className="overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr]">
@@ -177,6 +206,12 @@ export default function InboxPage() {
                   ))}
                 </div>
 
+                {sendError && (
+                  <div className="border-t border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
+                    {sendError}
+                  </div>
+                )}
+
                 <form onSubmit={sendReply} className="flex items-center gap-2 border-t border-slate-200 px-4 py-3">
                   <input
                     value={draft}
@@ -187,15 +222,16 @@ export default function InboxPage() {
                         ? "This contact opted out of messages"
                         : "Type a reply"
                     }
-                    disabled={active.consent === "opted_out"}
+                    disabled={active.consent === "opted_out" || sending}
                     className="h-10 flex-1 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
                   />
                   <Button
                     type="submit"
                     variant="primary"
-                    disabled={!draft.trim() || active.consent === "opted_out"}
+                    disabled={!draft.trim() || active.consent === "opted_out" || sending}
                   >
-                    <Send className="h-4 w-4" /> Send
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    {sending ? "Sending…" : "Send"}
                   </Button>
                 </form>
               </>

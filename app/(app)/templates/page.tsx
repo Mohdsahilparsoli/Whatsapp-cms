@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FileText, Loader2, Plus, RefreshCw } from "lucide-react";
+import { FileText, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -18,11 +18,7 @@ import InlineAlert from "@/components/ui/InlineAlert";
 import TemplatePreview from "@/components/templates/TemplatePreview";
 import TemplateSourceBadge from "@/components/templates/TemplateSourceBadge";
 import TemplateBuilder from "@/components/templates/TemplateBuilder";
-import {
-  metaTemplateViews,
-  useCustomTemplates,
-  type CustomTemplateDraft,
-} from "@/lib/customTemplates";
+import { metaTemplateViews, useCustomTemplates } from "@/lib/customTemplates";
 import { getPageMeta } from "@/lib/nav";
 import { formatDate } from "@/lib/utils";
 import type { CustomTemplate, TemplateView } from "@/types";
@@ -31,8 +27,16 @@ type Tab = "all" | "meta" | "custom";
 
 export default function TemplatesPage() {
   const meta = getPageMeta("/templates");
-  const { templates: customTemplates, views: customViews, create, update, remove, nameTaken } =
-    useCustomTemplates();
+  const {
+    templates,
+    views: customViews,
+    loading,
+    refresh,
+    create,
+    update,
+    remove,
+    nameTaken,
+  } = useCustomTemplates();
 
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
@@ -41,8 +45,8 @@ export default function TemplatesPage() {
 
   const [preview, setPreview] = useState<TemplateView | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
-  const [editing, setEditing] = useState<CustomTemplate | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<CustomTemplate | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<CustomTemplate | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<TemplateView | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -68,47 +72,52 @@ export default function TemplatesPage() {
     });
   }, [tab, customViews, query, status, category]);
 
-  function refresh() {
+  function refreshTemplates() {
     setRefreshing(true);
+    refresh(); // real refetch for Custom Templates
     window.setTimeout(() => {
+      // Meta-Approved is still mock — this timeout just simulates its sync.
       setRefreshing(false);
       setRefreshedAt(
-        new Date().toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
+        new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
       );
     }, 900);
   }
 
   function openCreate() {
-    setEditing(null);
+    setEditingTemplate(null);
     setBuilderOpen(true);
   }
 
-  function openEdit(id: string) {
-    const template = customTemplates.find((item) => item.id === id) ?? null;
-    if (!template) return;
-    setEditing(template);
+  function openEdit(row: TemplateView) {
+    const full = templates.find((t) => t.id === row.id);
+    if (!full) return;
+    setEditingTemplate(full);
     setBuilderOpen(true);
   }
 
-  function handleSave(draft: CustomTemplateDraft) {
-    if (editing) {
-      update(editing.id, draft);
+  async function handleSubmit(draft: Parameters<typeof create>[0], editingId?: string) {
+    const result = editingId ? await update(editingId, draft) : await create(draft);
+    if (result.ok) {
       setToast(
-        `“${draft.name}” updated${draft.status === "draft" ? " and saved as a draft" : ""}.`
-      );
-    } else {
-      create(draft);
-      setToast(
-        draft.status === "draft"
-          ? `“${draft.name}” saved as a draft.`
-          : `“${draft.name}” saved to your custom templates.`
+        editingId
+          ? `“${result.template.name}” updated.`
+          : result.template.status === "draft"
+            ? `“${result.template.name}” saved as a draft.`
+            : `“${result.template.name}” saved to your custom templates.`
       );
     }
-    setBuilderOpen(false);
-    setEditing(null);
+    return result;
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) return;
+    const result = await remove(confirmDelete.id);
+    if (result.ok) {
+      setToast(`“${confirmDelete.name}” deleted.`);
+    } else {
+      setToast(result.error ?? "Could not delete that template.");
+    }
   }
 
   // Status options depend on the tab, because the two libraries use different
@@ -177,24 +186,17 @@ export default function TemplatesPage() {
       className: "text-right",
       headerClassName: "text-right",
       render: (row) => (
-        <div className="flex flex-wrap justify-end gap-1.5">
+        <div className="flex justify-end gap-1.5">
           <Button size="sm" onClick={() => setPreview(row)}>
             Preview
           </Button>
           {row.source === "custom" && (
             <>
-              <Button size="sm" onClick={() => openEdit(row.id)}>
-                Edit
+              <Button size="sm" onClick={() => openEdit(row)}>
+                <Pencil className="h-3.5 w-3.5" /> Edit
               </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={() => {
-                  const template = customTemplates.find((item) => item.id === row.id);
-                  if (template) setConfirmDelete(template);
-                }}
-              >
-                Delete
+              <Button size="sm" variant="danger" onClick={() => setConfirmDelete(row)}>
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </>
           )}
@@ -210,7 +212,7 @@ export default function TemplatesPage() {
         description={meta.description}
         actions={
           <>
-            <Button onClick={refresh} disabled={refreshing}>
+            <Button onClick={refreshTemplates} disabled={refreshing}>
               {refreshing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -225,12 +227,16 @@ export default function TemplatesPage() {
         }
       />
 
-      <DemoNotice>
-        Meta-approved templates are mock data — in production they sync from Meta,
-        and only approved templates can be used in a campaign. Custom templates are
-        created here, stored in this browser only, and are not submitted to Meta.
-        {refreshedAt && <> Last refreshed at {refreshedAt}.</>}
-      </DemoNotice>
+      {/* Hidden for the App Review demo video — restore after review. */}
+      {false && (
+        <DemoNotice>
+          Meta-approved templates are still mock data — in production they&apos;d sync from
+          Meta, and only approved templates can be used in a campaign (that integration is a
+          later phase). Custom templates below are real — stored in PostgreSQL, scoped to
+          your account.
+          {refreshedAt && <> Last refreshed at {refreshedAt}.</>}
+        </DemoNotice>
+      )}
 
       {toast && (
         <InlineAlert
@@ -303,7 +309,7 @@ export default function TemplatesPage() {
           </span>
         </div>
 
-        {tab === "custom" && customViews.length === 0 && !refreshing ? (
+        {tab === "custom" && customViews.length === 0 && !loading && !refreshing ? (
           <EmptyState
             icon={FileText}
             title="No custom templates yet"
@@ -319,7 +325,7 @@ export default function TemplatesPage() {
             columns={columns}
             rows={rows}
             rowKey={(row) => row.id}
-            loading={refreshing}
+            loading={refreshing || (tab !== "meta" && loading)}
             emptyTitle="No templates match your filters"
             emptyDescription="Clear the search or switch tabs to see other templates."
           />
@@ -397,28 +403,22 @@ export default function TemplatesPage() {
 
       <TemplateBuilder
         open={builderOpen}
-        editing={editing}
         onClose={() => {
           setBuilderOpen(false);
-          setEditing(null);
+          setEditingTemplate(null);
         }}
-        onSaveDraft={handleSave}
-        onSave={handleSave}
+        onSubmit={handleSubmit}
         nameTaken={nameTaken}
+        editing={editingTemplate}
       />
 
       <ConfirmDialog
         open={Boolean(confirmDelete)}
-        title="Delete custom template"
-        message={`Delete “${confirmDelete?.name}”? This cannot be undone in the demo.`}
+        title="Delete template"
+        message={`Permanently delete “${confirmDelete?.name}”? This cannot be undone.`}
         confirmLabel="Delete"
-        cancelLabel="Keep it"
         destructive
-        onConfirm={() => {
-          if (!confirmDelete) return;
-          remove(confirmDelete.id);
-          setToast(`“${confirmDelete.name}” deleted.`);
-        }}
+        onConfirm={handleDelete}
         onClose={() => setConfirmDelete(null)}
       />
     </div>

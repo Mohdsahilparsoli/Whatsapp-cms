@@ -71,10 +71,13 @@ export default function WhatsAppSetupPage() {
         }
       />
 
-      <DemoNotice>
-        Connection status here is simulated. Real Meta authorization will be added later through
-        Meta&apos;s embedded signup flow. This CMS will never ask for your Meta password or an OTP.
-      </DemoNotice>
+      {/* Hidden for the App Review demo video — restore after review. */}
+      {false && (
+        <DemoNotice>
+          Connection status here is simulated. Real Meta authorization will be added later through
+          Meta&apos;s embedded signup flow. This CMS will never ask for your Meta password or an OTP.
+        </DemoNotice>
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">

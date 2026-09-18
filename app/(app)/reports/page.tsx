@@ -16,7 +16,7 @@ import { campaigns, dailyStats } from "@/data/campaigns";
 import { clients } from "@/data/clients";
 import { useAuth } from "@/lib/auth";
 import { downloadCsv, formatNumber, percent } from "@/lib/utils";
-import type { Campaign } from "@/types";
+import type { MockCampaign } from "@/types";
 
 export default function ReportsPage() {
   const { user } = useAuth();
@@ -61,7 +61,7 @@ export default function ReportsPage() {
     ]);
   }
 
-  const columns: Column<Campaign>[] = [
+  const columns: Column<MockCampaign>[] = [
     {
       key: "name",
       header: "Campaign",

@@ -41,14 +41,16 @@ app/
   login/page.tsx         login page
   api/auth/               login, logout, session, change-password (real, DB-backed, both roles)
   api/clients/            client CRUD, status, reset-password (real, DB-backed, Super-Admin-only)
+  api/contacts/           contact CRUD, tags, bulk-tag, bulk-delete, import (real, DB-backed, Client-Admin-only)
+  api/templates/          list, create, media upload (real, DB-backed, Client-Admin-only; no edit/delete yet)
   (app)/layout.tsx       protected shell (sidebar + topbar), redirects to /login if signed out
   (app)/dashboard        role-aware dashboard
   (app)/clients          super admin: clients management — now backed by PostgreSQL
   (app)/subscriptions    subscriptions (super admin = all, client = own)
   (app)/whatsapp-setup   WhatsApp account setup
-  (app)/contacts         contacts
+  (app)/contacts         contacts — now backed by PostgreSQL (Phase A)
   (app)/contacts/import  contact import / fetcher
-  (app)/templates        templates
+  (app)/templates        templates — Custom Templates now backed by PostgreSQL (Phase 1: create + list only)
   (app)/bulk-sender      bulk message sender
   (app)/campaigns        campaigns + create wizard
   (app)/queue            queue & rate limiting
@@ -63,15 +65,19 @@ components/dashboard/   SuperAdminDashboard, ClientAdminDashboard
 components/forms/       ClientForm, ContactForm
 components/subscription/ PlanCard, PlanComparison, CheckoutModal, SubscriptionBadge,
                         SubscriptionHistoryTable, TrialReminder, AccessGate
-components/templates/   TemplateBuilder, TemplatePreview, TemplateSourceBadge
+components/templates/   TemplateBuilder (real create, file upload), TemplatePreview,
+                        TemplateSourceBadge
 lib/                    auth (real, both roles — verifies against the server),
                         db (Prisma client), session + adminSession (login
                         cookies, one per role), passwords (bcrypt), apiGuards
-                        (requireSuperAdmin), nav config, utils, subscription/
-                        customTemplates/campaignStore (still localStorage —
-                        not yet migrated)
+                        (requireSuperAdmin, requireClient), contactMapper,
+                        templateMapper, fileParse (client-side CSV/Excel
+                        parsing), customTemplates (real create/list — see
+                        Templates section below), campaignMapper,
+                        campaignRunner, campaignScheduler, nav config, utils,
+                        subscription (still localStorage — not yet migrated)
 prisma/                 schema.prisma (Client, Session, AdminUser,
-                        AdminSession), seed.ts
+                        AdminSession, Contact, CustomTemplate, Campaign), seed.ts
 prisma.config.ts        Prisma 7 config — DB URL, migrations path, seed command
 scripts/                create-admin.ts, reset-admin-password.ts — terminal-only
                         bootstrap/recovery for the single Super Admin account
@@ -138,6 +144,95 @@ types/                  shared TypeScript types
   (`lib/apiGuards.ts` → `requireSuperAdmin()`) before allowing any client
   create/edit/suspend/reset action — not just "caller isn't a client" like
   in the first pass of this work.
+
+## Contacts (Phase A — real)
+
+- Contacts live in **PostgreSQL** (`contacts` table), scoped to the signed-in
+  client (`requireClient()` in `lib/apiGuards.ts` — Contacts is a
+  Client-Admin-only area, Super Admin doesn't see it, matching the sidebar).
+- **Phone is the only required field.** Name, email, tags, and consent are
+  all optional.
+- Tags are a plain string array per contact (no separate Tag table yet).
+  `GET /api/contacts/tags` returns the distinct set in use, which powers the
+  tag picker (`components/forms/ContactForm.tsx` → `TagPicker`) — pick an
+  existing tag or type a new one.
+- Delete is **real/permanent** (unlike Client, which is suspended rather
+  than deleted) — there's a confirm dialog, but no undo.
+- Bulk actions (tag, delete) are real too: `POST /api/contacts/bulk-tag` and
+  `POST /api/contacts/bulk-delete`.
+- **Contacts Phase B (not built yet):** CSV/Excel import, column mapping,
+  and "saved contact lists" (`/contacts/import`) — still frontend-only mock
+  data, deliberately deferred since saved lists will also tie into Campaigns.
+- **Contacts Phase B (real now):** CSV/Excel import — `/contacts/import`
+  parses the file **in the browser** (`lib/fileParse.ts`, using papaparse for
+  CSV and SheetJS/`xlsx` for Excel), auto-guesses which column is phone/name/
+  email/tags/consent (editable), shows a live preview + validation summary,
+  then sends the mapped rows to `POST /api/contacts/import`. That endpoint
+  normalizes and bulk-inserts them with `createMany({ skipDuplicates: true })`
+  scoped to the signed-in client. Import-specific defaults (different from
+  the plain Add Contact form): a missing/unrecognized consent value becomes
+  `opted_in`, and a missing tags cell becomes the tag `normal`.
+  "Saved contact lists" at the bottom of that page is still demo data —
+  real saved lists are deferred until Campaigns is migrated, since lists are
+  really a Campaigns concept (reusable audiences).
+- The View drawer's "message history" is still demo data — it'll become
+  real once Campaigns/messages are migrated.
+
+## Templates (Phase 1 — Create + listing only)
+
+- **Custom Templates** are real: stored in PostgreSQL (`custom_templates`
+  table), scoped to the signed-in client (`requireClient()`, same as
+  Contacts). **Meta-Approved Templates stay mock data** (`data/campaigns.ts`)
+  — real Meta WhatsApp Business API sync is a separate, later phase.
+- Phase 1 scope is deliberately **Create + listing only** — there is no Edit
+  or Delete for custom templates yet (`app/api/templates/route.ts` only
+  exports `GET`/`POST`). Add those (`PUT`/`DELETE /api/templates/[id]`) when
+  that's needed.
+- **Media is a real file upload**, not a URL field: `POST /api/templates/media`
+  saves the file straight to this server's local disk under
+  `public/uploads/templates/<clientId>/` (Next.js then serves it as a static
+  file at the returned path), max **10MB**, restricted by type (image:
+  jpg/png/webp/gif, video: mp4/webm/mov, document: PDF only). Because this
+  writes to local disk, it only works on a persistent, self-hosted server —
+  **not** on a stateless/serverless host like Vercel, where the filesystem
+  doesn't persist between requests.
+- **Buttons** support three kinds: URL, Call (phone number), and WhatsApp
+  chat — up to 3 per template.
+- The Templates page's `useCustomTemplates()` hook (`lib/customTemplates.tsx`)
+  keeps the same interface Bulk Message Sender and Campaigns read from
+  (`templates`, `views`) — Create, Edit (`PUT /api/templates/[id]`), and
+  Delete (`DELETE /api/templates/[id]`) are all real now.
+
+## Bulk Message Sender & Campaigns (real, with a shared limitation)
+
+- Both pages send **real** WhatsApp messages via Meta's Graph API, using the
+  same shared test-number credentials as `/api/whatsapp/send-test`
+  (`META_TEST_PHONE_NUMBER_ID` / `META_TEST_ACCESS_TOKEN` in `.env`) — not
+  yet a real per-client WhatsApp connection. A plain-text message only
+  delivers to a recipient who has messaged that test number in the last 24
+  hours (Meta's messaging-window rule).
+- Only **saved (non-draft) Custom Templates** can be sent — Meta-Approved
+  templates are still mock data and aren't real, registered Meta templates,
+  so Meta would reject them.
+- Audience is a **real** filter over the signed-in client's own Contacts:
+  "all" opted-in contacts, or narrowed by one tag. No fake opt-out
+  percentage — a contact is only included if its real `consent` is
+  `opted_in`.
+- **Bulk Sender** (`app/api/bulk-send/route.ts`) is "send now" only, with a
+  live per-contact result list (sent/failed) after it finishes.
+- **Campaigns** (`app/api/campaigns/*`) adds Draft / Send Now / **Schedule**,
+  plus Edit and Delete:
+  - Draft and Edit are always available for `draft`/`scheduled` campaigns.
+  - "Send Now" runs the same send loop synchronously and returns the final
+    result.
+  - "Schedule" is picked up by an **in-process scheduler**
+    (`lib/campaignScheduler.ts`) — a `setInterval` inside the Next.js server
+    that checks every 30 seconds for due campaigns and sends them via
+    `lib/campaignRunner.ts`. This is real, but only while the server process
+    stays running (`npm run dev` / `npm start` kept up); it will not fire on
+    a serverless host where the process can go idle between requests.
+  - Delivered/read counts aren't tracked (`sentCount`/`failedCount` only) —
+    that requires Meta's delivery-status webhooks, a separate, later phase.
 
 ## Notes
 

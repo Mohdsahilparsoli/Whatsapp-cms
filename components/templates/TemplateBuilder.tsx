@@ -1,17 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, MessageCircle, Plus, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ExternalLink, Loader2, MessageCircle, Phone, Plus, Trash2, UploadCloud, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import InlineAlert from "@/components/ui/InlineAlert";
 import FormField, { SelectField, TextareaField } from "@/components/ui/FormField";
 import TemplatePreview from "./TemplatePreview";
-import { emptyDraft, type CustomTemplateDraft } from "@/lib/customTemplates";
-import type { CustomTemplate, TemplateButtonKind, TemplateMediaKind } from "@/types";
+import { emptyDraft, type CustomTemplateDraft, type SaveTemplateResult } from "@/lib/customTemplates";
+import type { CustomTemplate, TemplateButtonKind } from "@/types";
 
 const MAX_BUTTONS = 3;
 const MAX_VARIABLES = 10;
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
 
 const categories = [
   { label: "Marketing", value: "Marketing" },
@@ -34,6 +35,21 @@ const mediaOptions = [
   { label: "Document", value: "document" },
 ];
 
+const mediaAccept: Record<string, string> = {
+  image: "image/jpeg,image/png,image/webp,image/gif",
+  video: "video/mp4,video/webm,video/quicktime",
+  document: "application/pdf",
+};
+
+const buttonMeta: Record<
+  TemplateButtonKind,
+  { label: string; icon: React.ComponentType<{ className?: string }>; valueLabel: string; placeholder: string }
+> = {
+  url: { label: "Primary button (URL)", icon: ExternalLink, valueLabel: "URL", placeholder: "https://example.com/offer" },
+  call: { label: "Call button", icon: Phone, valueLabel: "Phone number", placeholder: "+91 98110 22331" },
+  whatsapp: { label: "WhatsApp chat button", icon: MessageCircle, valueLabel: "URL", placeholder: "https://wa.me/919000000000" },
+};
+
 type Errors = Partial<Record<"name" | "body" | "media" | "buttons", string>>;
 
 /** Drops {{n}} and renumbers the placeholders above it so the body stays valid. */
@@ -46,49 +62,57 @@ function removeVariableFromBody(body: string, index: number) {
     });
 }
 
+function draftFromTemplate(template: CustomTemplate): CustomTemplateDraft {
+  return {
+    name: template.name,
+    language: template.language,
+    category: template.category,
+    status: template.status,
+    header: template.header ?? "",
+    body: template.body,
+    footer: template.footer ?? "",
+    media: template.media,
+    buttons: template.buttons,
+    variables: template.variables,
+  };
+}
+
 export default function TemplateBuilder({
   open,
-  editing,
   onClose,
-  onSaveDraft,
-  onSave,
+  onSubmit,
   nameTaken,
+  editing = null,
 }: {
   open: boolean;
-  /** null when creating a new template. */
-  editing: CustomTemplate | null;
   onClose: () => void;
-  onSaveDraft: (draft: CustomTemplateDraft) => void;
-  onSave: (draft: CustomTemplateDraft) => void;
+  /** Called for both "Save as Draft" and "Save Template" — draft.status is
+   * already set to "draft" or "custom" before this is called. When editing,
+   * the template's id is passed as the second argument. */
+  onSubmit: (draft: CustomTemplateDraft, editingId?: string) => Promise<SaveTemplateResult>;
   nameTaken: (name: string, ignoreId?: string) => boolean;
+  /** Pass an existing template to edit it; omit/null to create a new one. */
+  editing?: CustomTemplate | null;
 }) {
-  const [draft, setDraft] = useState<CustomTemplateDraft>(emptyDraft);
+  const [draft, setDraft] = useState<CustomTemplateDraft>(() =>
+    editing ? draftFromTemplate(editing) : emptyDraft()
+  );
   const [errors, setErrors] = useState<Errors>({});
+  const [submitting, setSubmitting] = useState<"draft" | "custom" | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  /** Strips the fields the store owns, leaving an editable draft. */
-  function toDraft(template: CustomTemplate): CustomTemplateDraft {
-    const {
-      id: _id,
-      clientId: _clientId,
-      createdAt: _createdAt,
-      updatedAt: _updatedAt,
-      ...rest
-    } = template;
-    void _id;
-    void _clientId;
-    void _createdAt;
-    void _updatedAt;
-    return rest;
-  }
-
-  // Load the right draft whenever the modal opens or the target changes.
-  // Adjusting state during render avoids a reset effect.
-  const resetKey = `${open}:${editing?.id ?? "new"}`;
-  const [lastKey, setLastKey] = useState(resetKey);
-  if (resetKey !== lastKey) {
-    setLastKey(resetKey);
-    setErrors({});
-    setDraft(editing ? toDraft(editing) : emptyDraft());
+  // Reset the draft fresh every time the modal opens — adjusting state
+  // during render avoids a separate reset effect.
+  const [lastOpen, setLastOpen] = useState(open);
+  if (open !== lastOpen) {
+    setLastOpen(open);
+    if (open) {
+      setErrors({});
+      setUploadError(null);
+      setDraft(editing ? draftFromTemplate(editing) : emptyDraft());
+    }
   }
 
   const patch = (changes: Partial<CustomTemplateDraft>) =>
@@ -124,74 +148,113 @@ export default function TemplateBuilder({
         {
           id: `btn-${Date.now()}-${draft.buttons.length}`,
           kind,
-          label: kind === "whatsapp" ? "Chat with us" : "",
+          label: kind === "whatsapp" ? "Chat with us" : kind === "call" ? "Call us" : "",
           url: kind === "whatsapp" ? "https://wa.me/" : "",
         },
       ],
     });
   }
 
-  function validate(): Errors {
-    const next: Errors = {};
+  async function handleFileSelected(file: File | undefined) {
+    setUploadError(null);
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+      setUploadError("That file is larger than 10MB.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("kind", draft.media.kind);
+      formData.append("file", file);
+      const res = await fetch("/api/templates/media", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        setUploadError(data.error ?? "Could not upload that file.");
+        return;
+      }
+      patch({ media: { kind: draft.media.kind, url: data.url, fileName: data.fileName } });
+    } catch {
+      setUploadError("Could not reach the server. Please try again.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function validate(asDraft: boolean): Errors {
     const name = draft.name.trim();
+    const next: Errors = {};
 
     if (!name) next.name = "Give the template a name.";
     else if (!/^[a-z0-9_]+$/.test(name))
       next.name = "Use lowercase letters, numbers, and underscores only.";
-    else if (nameTaken(name, editing?.id))
-      next.name = "You already have a template with this name.";
+    else if (nameTaken(name, editing?.id)) next.name = "You already have a template with this name.";
+
+    if (asDraft) return next;
 
     if (!draft.body.trim()) next.body = "Write the message body.";
-
     if (draft.media.kind !== "none" && !draft.media.url.trim())
-      next.media = "Add a URL for the attached media.";
+      next.media = "Upload a file for the attached media.";
 
-    const badButton = draft.buttons.find(
-      (button) => !button.label.trim() || !/^https?:\/\/.+/.test(button.url.trim())
-    );
+    const badButton = draft.buttons.find((button) => {
+      if (!button.label.trim()) return true;
+      if (button.kind === "call") return button.url.replace(/\D/g, "").length < 7;
+      return !/^https?:\/\/.+/.test(button.url.trim());
+    });
     if (badButton)
       next.buttons =
-        "Every button needs a label and a URL starting with http:// or https://.";
+        "Every button needs a label, and a URL (http:// or https://) or a phone number for Call buttons.";
 
     return next;
   }
 
-  function submit(asDraft: boolean) {
-    if (asDraft) {
-      // Drafts only need a valid name so work in progress can be parked.
-      const name = draft.name.trim();
-      if (!name) {
-        setErrors({ name: "Give the template a name before saving a draft." });
-        return;
-      }
-      if (nameTaken(name, editing?.id)) {
-        setErrors({ name: "You already have a template with this name." });
-        return;
-      }
-      setErrors({});
-      onSaveDraft({ ...draft, name, status: "draft" });
-      return;
-    }
-
-    const found = validate();
+  async function submit(asDraft: boolean) {
+    const found = validate(asDraft);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
-    onSave({ ...draft, name: draft.name.trim(), status: "custom" });
+
+    setSubmitting(asDraft ? "draft" : "custom");
+    try {
+      const result = await onSubmit(
+        {
+          ...draft,
+          name: draft.name.trim(),
+          status: asDraft ? "draft" : "custom",
+        },
+        editing?.id
+      );
+      if (!result.ok) {
+        setErrors((prev) => ({ ...prev, ...result.errors }));
+        if (result.error) setUploadError(result.error);
+        return;
+      }
+      onClose();
+    } finally {
+      setSubmitting(null);
+    }
   }
+
+  const busy = submitting !== null;
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
-      title={editing ? "Edit custom template" : "Create custom template"}
-      description="Custom templates are stored in this demo only and are not submitted to Meta for approval."
+      onClose={() => !busy && onClose()}
+      title={editing ? `Edit ${editing.name}` : "Create custom template"}
+      description="Custom templates are your own — not submitted to Meta for approval."
       size="lg"
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={() => submit(true)}>Save as Draft</Button>
-          <Button variant="primary" onClick={() => submit(false)}>
-            Save Template
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={() => submit(true)} disabled={busy}>
+            {submitting === "draft" ? "Saving…" : "Save as Draft"}
+          </Button>
+          <Button variant="primary" onClick={() => submit(false)} disabled={busy}>
+            {submitting === "custom" ? "Saving…" : editing ? "Save changes" : "Save Template"}
           </Button>
         </>
       }
@@ -225,39 +288,71 @@ export default function TemplateBuilder({
             <SelectField
               label="Media"
               value={draft.media.kind}
-              onChange={(value) =>
+              onChange={(value) => {
+                setUploadError(null);
                 patch({
-                  media: {
-                    ...draft.media,
-                    kind: value as TemplateMediaKind,
-                    url: value === "none" ? "" : draft.media.url,
-                  },
-                })
-              }
+                  media:
+                    value === "none"
+                      ? { kind: "none", url: "" }
+                      : { kind: value as CustomTemplateDraft["media"]["kind"], url: "" },
+                });
+              }}
               options={mediaOptions}
             />
           </div>
 
           {draft.media.kind !== "none" && (
-            <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
-              <FormField
-                label={`${draft.media.kind} URL`}
-                value={draft.media.url}
-                onChange={(value) =>
-                  patch({ media: { ...draft.media, url: value } })
-                }
-                error={errors.media}
-                placeholder="https://example.com/media.jpg"
-              />
-              {draft.media.kind === "document" && (
-                <FormField
-                  label="File name"
-                  value={draft.media.fileName ?? ""}
-                  onChange={(value) =>
-                    patch({ media: { ...draft.media, fileName: value } })
-                  }
-                  placeholder="price-list.pdf"
-                />
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-600">
+                {draft.media.kind === "image" && "Image — jpg, png, webp, or gif, up to 10MB"}
+                {draft.media.kind === "video" && "Video — mp4, webm, or mov, up to 10MB"}
+                {draft.media.kind === "document" && "Document — PDF, up to 10MB"}
+              </p>
+
+              {draft.media.url ? (
+                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                  <div className="min-w-0 flex-1 truncate text-sm text-slate-700">
+                    {draft.media.fileName || "Uploaded file"}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => patch({ media: { kind: draft.media.kind, url: "" } })}
+                  >
+                    <X className="h-3.5 w-3.5" /> Remove
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={mediaAccept[draft.media.kind]}
+                    className="sr-only"
+                    id="template-media-upload"
+                    onChange={(e) => handleFileSelected(e.target.files?.[0])}
+                  />
+                  <label
+                    htmlFor="template-media-upload"
+                    className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-600 hover:border-indigo-400 hover:text-indigo-600"
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+                      </>
+                    ) : (
+                      <>
+                        <UploadCloud className="h-4 w-4" /> Choose a file to upload
+                      </>
+                    )}
+                  </label>
+                </div>
+              )}
+
+              {(errors.media || uploadError) && (
+                <p role="alert" className="text-xs text-red-600">
+                  {errors.media || uploadError}
+                </p>
               )}
             </div>
           )}
@@ -345,18 +440,13 @@ export default function TemplateBuilder({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium text-slate-700">Buttons</p>
               <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => addButton("url")}
-                  disabled={draft.buttons.length >= MAX_BUTTONS}
-                >
-                  <ExternalLink className="h-3.5 w-3.5" /> Add primary button
+                <Button size="sm" onClick={() => addButton("url")} disabled={draft.buttons.length >= MAX_BUTTONS}>
+                  <ExternalLink className="h-3.5 w-3.5" /> Add URL button
                 </Button>
-                <Button
-                  size="sm"
-                  onClick={() => addButton("whatsapp")}
-                  disabled={draft.buttons.length >= MAX_BUTTONS}
-                >
+                <Button size="sm" onClick={() => addButton("call")} disabled={draft.buttons.length >= MAX_BUTTONS}>
+                  <Phone className="h-3.5 w-3.5" /> Add Call button
+                </Button>
+                <Button size="sm" onClick={() => addButton("whatsapp")} disabled={draft.buttons.length >= MAX_BUTTONS}>
                   <MessageCircle className="h-3.5 w-3.5" /> Add WhatsApp chat
                 </Button>
               </div>
@@ -368,62 +458,59 @@ export default function TemplateBuilder({
               </p>
             ) : (
               <ul className="mt-3 space-y-3">
-                {draft.buttons.map((button, index) => (
-                  <li
-                    key={button.id}
-                    className="rounded-lg border border-slate-200 bg-slate-50 p-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-medium text-slate-500">
-                        {button.kind === "whatsapp"
-                          ? "WhatsApp chat button"
-                          : "Primary button (URL)"}
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        aria-label={`Remove button ${index + 1}`}
-                        onClick={() =>
-                          patch({
-                            buttons: draft.buttons.filter((_, i) => i !== index),
-                          })
-                        }
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <FormField
-                        label="Button label"
-                        value={button.label}
-                        onChange={(value) =>
-                          patch({
-                            buttons: draft.buttons.map((item, i) =>
-                              i === index ? { ...item, label: value } : item
-                            ),
-                          })
-                        }
-                        placeholder="View collection"
-                      />
-                      <FormField
-                        label="URL"
-                        value={button.url}
-                        onChange={(value) =>
-                          patch({
-                            buttons: draft.buttons.map((item, i) =>
-                              i === index ? { ...item, url: value } : item
-                            ),
-                          })
-                        }
-                        placeholder={
-                          button.kind === "whatsapp"
-                            ? "https://wa.me/919000000000"
-                            : "https://example.com/offer"
-                        }
-                      />
-                    </div>
-                  </li>
-                ))}
+                {draft.buttons.map((button, index) => {
+                  const meta = buttonMeta[button.kind];
+                  return (
+                    <li
+                      key={button.id}
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                          <meta.icon className="h-3.5 w-3.5" /> {meta.label}
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          aria-label={`Remove button ${index + 1}`}
+                          onClick={() =>
+                            patch({
+                              buttons: draft.buttons.filter((_, i) => i !== index),
+                            })
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <FormField
+                          label="Button label"
+                          value={button.label}
+                          onChange={(value) =>
+                            patch({
+                              buttons: draft.buttons.map((item, i) =>
+                                i === index ? { ...item, label: value } : item
+                              ),
+                            })
+                          }
+                          placeholder={meta.label === "Call button" ? "Call us" : "View collection"}
+                        />
+                        <FormField
+                          label={meta.valueLabel}
+                          value={button.url}
+                          onChange={(value) =>
+                            patch({
+                              buttons: draft.buttons.map((item, i) =>
+                                i === index ? { ...item, url: value } : item
+                              ),
+                            })
+                          }
+                          placeholder={meta.placeholder}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
 

@@ -37,7 +37,7 @@ export default function ConsentPage() {
     const q = query.trim().toLowerCase();
     return rows.filter((row) => {
       const matchesTab = tab === "all" || row.consent === tab;
-      const matchesQuery = !q || row.name.toLowerCase().includes(q) || row.phone.includes(q);
+      const matchesQuery = !q || (row.name ?? "").toLowerCase().includes(q) || row.phone.includes(q);
       return matchesTab && matchesQuery;
     });
   }, [rows, tab, query]);
@@ -52,8 +52,8 @@ export default function ConsentPage() {
     );
     setToast(
       consent === "opted_out"
-        ? `${contact.name} opted out and will be excluded from campaigns.`
-        : `${contact.name} marked as ${consent.replace("_", " ")}.`
+        ? `${contact.name || contact.phone} opted out and will be excluded from campaigns.`
+        : `${contact.name || contact.phone} marked as ${consent.replace("_", " ")}.`
     );
   }
 
@@ -63,7 +63,7 @@ export default function ConsentPage() {
       header: "Contact",
       render: (row) => (
         <div>
-          <p className="font-medium text-slate-900">{row.name}</p>
+          <p className="font-medium text-slate-900">{row.name || "—"}</p>
           <p className="text-xs text-slate-400">{row.phone}</p>
         </div>
       ),

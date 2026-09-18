@@ -23,7 +23,7 @@ import { getPlan } from "@/data/plans";
 import SubscriptionBadge from "@/components/subscription/SubscriptionBadge";
 import { useSubscription } from "@/lib/subscription";
 import { describeDays, formatCurrency, formatDate, formatNumber, percent } from "@/lib/utils";
-import type { Campaign } from "@/types";
+import type { MockCampaign } from "@/types";
 
 export default function ClientAdminDashboard() {
   const account = clients.find((c) => c.userId === "clientdemo")!;
@@ -37,7 +37,7 @@ export default function ClientAdminDashboard() {
     (c) => c.status === "running" || c.status === "scheduled"
   ).length;
 
-  const columns: Column<Campaign>[] = [
+  const columns: Column<MockCampaign>[] = [
     {
       key: "name",
       header: "Campaign",

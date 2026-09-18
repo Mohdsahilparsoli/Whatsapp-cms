@@ -1,5 +1,5 @@
 import type {
-  Campaign,
+  MockCampaign,
   Conversation,
   MessageRecord,
   QueueJob,
@@ -74,7 +74,7 @@ export const templates: Template[] = [
   },
 ];
 
-export const campaigns: Campaign[] = [
+export const campaigns: MockCampaign[] = [
   {
     id: "cm1",
     name: "Festive Drop 2026",
@@ -209,6 +209,57 @@ export const queueJobs: QueueJob[] = [
 ];
 
 export const conversations: Conversation[] = [
+  {
+    id: "cv0",
+    contactName: "Md Sahil",
+    phone: "+91 98181 86876",
+    unread: 0,
+    lastMessageAt: "Just now",
+    consent: "opted_in",
+    tags: ["vip"],
+    messages: [
+      {
+        id: "m0",
+        from: "customer",
+        text: "Hi, I'd like to know more about your services.",
+        time: "10:30",
+      },
+    ],
+  },
+  {
+    id: "cv0a",
+    contactName: "Mohd Zakir",
+    phone: "+91 93131 31335",
+    unread: 0,
+    lastMessageAt: "Just now",
+    consent: "opted_in",
+    tags: ["vip"],
+    messages: [
+      {
+        id: "m0",
+        from: "customer",
+        text: "Hi, I'd like to know more about your services.",
+        time: "10:30",
+      },
+    ],
+  },
+  {
+    id: "cv0b",
+    contactName: "Himanshu",
+    phone: "+91 73109 34166",
+    unread: 0,
+    lastMessageAt: "Just now",
+    consent: "opted_in",
+    tags: ["vip"],
+    messages: [
+      {
+        id: "m0",
+        from: "customer",
+        text: "Hi, I'd like to know more about your services.",
+        time: "10:30",
+      },
+    ],
+  },
   {
     id: "cv1",
     contactName: "Aarav Sharma",

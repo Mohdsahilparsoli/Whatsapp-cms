@@ -1,15 +1,26 @@
 // WhatsApp CMS — database schema
 //
-// Phase 1 scope: Client module (Super Admin ⇄ Clients) + Client Admin login.
-// Phase 2 scope: Super Admin login (AdminUser below) — a single, real,
+// Phase 1: Client module (Super Admin ⇄ Clients) + Client Admin login.
+// Phase 2: Super Admin login (AdminUser below) — a single, real,
 // database-backed admin account. There is deliberately no "create another
 // admin" flow anywhere in the app; see scripts/create-admin.ts and
 // scripts/reset-admin-password.ts for how the one admin account is
 // provisioned and recovered, from the terminal only.
+// Contacts Phase A: the Contact model below — CRUD, search, filter, tags.
+// CSV/Excel import and saved contact lists are Contacts Phase B, not yet
+// built.
+// Templates Phase 1: CustomTemplate below — Create + listing only (no
+// Edit/Delete yet). Meta-Approved templates stay mock data (data/campaigns.ts)
+// until real Meta WhatsApp Business API integration, a later phase.
+// Campaigns: the Campaign model below — Draft / Send Now / Schedule are all
+// real. "Send Now" runs immediately via Meta's test-number API (same scope
+// as /api/bulk-send). "Schedule" is picked up by an in-process scheduler
+// (lib/campaignScheduler.ts) that only runs while the Node server is up —
+// see that file for why this is a real-but-limited implementation.
 //
-// Everything else (contacts, templates, campaigns, subscriptions, etc.) is
-// still frontend-only / localStorage in this phase, and will move to the
-// database in a later phase.
+// Everything else (subscriptions, etc.) is still frontend-only /
+// localStorage in this phase, and will move to the database in a later
+// phase.
 
 generator client {
   provider = "prisma-client"
@@ -39,6 +50,9 @@ model Client {
   startDate    DateTime     @db.Date
   expiryDate   DateTime     @db.Date
   status       ClientStatus @default(active)
+  /// Cached/manual contact count shown on the Clients list — NOT the same as
+  /// `contactRecords.length`. Kept as-is from Phase 1; real contacts (below)
+  /// are tracked separately and the two aren't reconciled yet.
   messagesSent Int          @default(0)
   contacts     Int          @default(0)
   plan         String       @default("Free Trial")
@@ -46,7 +60,10 @@ model Client {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sessions Session[]
+  sessions       Session[]
+  contactRecords Contact[]
+  customTemplates CustomTemplate[]
+  campaigns Campaign[]
 
   @@map("clients")
 }
@@ -97,4 +114,140 @@ model AdminSession {
 
   @@index([adminId])
   @@map("admin_sessions")
+}
+
+enum ContactConsent {
+  opted_in
+  opted_out
+  pending
+}
+
+/// A contact belonging to exactly one client (tenant). Phone is the only
+/// required field — see ContactsPage / ContactForm. Tags are a plain string
+/// array (no separate Tag table yet); GET /api/contacts/tags returns the
+/// distinct set already in use, for the tag picker.
+model Contact {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  name  String?
+  phone String
+  email String?
+  tags  String[] @default([])
+
+  consent       ContactConsent @default(opted_in)
+  consentSource String         @default("Manual entry")
+  consentDate   DateTime       @default(now()) @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One phone number per client — importing/adding the same number twice
+  // for the same client is a duplicate, not a second contact.
+  @@unique([clientId, phone])
+  @@index([clientId])
+  @@map("contacts")
+}
+
+enum TemplateCategory {
+  Marketing
+  Utility
+  Authentication
+}
+
+enum CustomTemplateStatus {
+  draft
+  custom
+}
+
+enum TemplateMediaKind {
+  none
+  image
+  video
+  document
+}
+
+/// A client's own WhatsApp message template — Templates Phase 1 scope is
+/// Create + listing only; there's no Edit/Delete yet (see ContactForm-style
+/// note in app/(app)/templates/page.tsx). Meta-Approved templates are NOT in
+/// this table — they stay mock data (data/campaigns.ts) until real Meta API
+/// integration.
+model CustomTemplate {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  name     String
+  language String
+  category TemplateCategory
+  status   CustomTemplateStatus @default(draft)
+
+  header String?
+  body   String
+  footer String?
+
+  mediaKind     TemplateMediaKind @default(none)
+  /// Public path under /uploads/templates/... — see app/api/templates/media.
+  /// Not an external URL: the file is uploaded and stored on this server's
+  /// disk (public/uploads/), not a cloud bucket.
+  mediaUrl      String?
+  mediaFileName String?
+
+  /// Array of { id, kind: "url" | "call" | "whatsapp", label, url } — "url"
+  /// holds the link for url/whatsapp buttons, or the phone number for call
+  /// buttons. Stored as Json since Postgres/Prisma has no native array-of-
+  /// object column type.
+  buttons   Json     @default("[]")
+  variables String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A client shouldn't have two templates with the same name.
+  @@unique([clientId, name])
+  @@index([clientId])
+  @@map("custom_templates")
+}
+
+enum CampaignStatus {
+  draft
+  scheduled
+  sending
+  completed
+  cancelled
+  failed
+}
+
+/// A bulk-send campaign belonging to one client. Audience is a tag filter
+/// over that client's own Contact rows (like Bulk Sender) — "all" (or null)
+/// means every opted-in contact. templateId/templateName are a loose
+/// reference + snapshot (not a hard foreign key) so the campaign still
+/// displays sensibly even if the template is later edited or deleted.
+model Campaign {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  name         String
+  audienceTag  String? // null/"all" = every opted-in contact
+  templateId   String
+  templateName String
+
+  status      CampaignStatus @default(draft)
+  scheduledAt DateTime?
+
+  /// Snapshot of the matching audience size at the time the campaign was
+  /// created or last (re)scheduled — the real count is re-checked again
+  /// right before sending.
+  audienceSize Int @default(0)
+  sentCount    Int @default(0)
+  failedCount  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status, scheduledAt])
+  @@map("campaigns")
 }

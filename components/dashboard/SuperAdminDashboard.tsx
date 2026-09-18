@@ -18,7 +18,7 @@ import Button from "@/components/ui/Button";
 import { clientActivity, clients } from "@/data/clients";
 import { campaigns } from "@/data/campaigns";
 import { formatDate, formatNumber, daysUntil } from "@/lib/utils";
-import type { Client, Campaign } from "@/types";
+import type { Client, MockCampaign } from "@/types";
 
 export default function SuperAdminDashboard() {
   const active = clients.filter((c) => c.status === "active").length;
@@ -46,7 +46,7 @@ export default function SuperAdminDashboard() {
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
   ];
 
-  const campaignColumns: Column<Campaign>[] = [
+  const campaignColumns: Column<MockCampaign>[] = [
     { key: "name", header: "Campaign", render: (row) => <span className="font-medium text-slate-900">{row.name}</span> },
     { key: "audience", header: "Audience", render: (row) => formatNumber(row.audienceSize) },
     { key: "sent", header: "Sent", render: (row) => formatNumber(row.sent) },

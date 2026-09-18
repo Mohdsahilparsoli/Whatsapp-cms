@@ -8,6 +8,7 @@ const map: Record<string, string> = {
   paid: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
   opted_in: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
   running: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
+  sending: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
   read: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
   processing: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
   scheduled: "bg-sky-50 text-sky-700 ring-sky-600/20",

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import LoadingState from "@/components/ui/LoadingState";
 import AccessGate from "@/components/subscription/AccessGate";
-import { CampaignStoreProvider } from "@/lib/campaignStore";
 import { CustomTemplatesProvider } from "@/lib/customTemplates";
 import { SubscriptionProvider } from "@/lib/subscription";
 import MobileSidebar from "./MobileSidebar";
@@ -42,29 +41,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <SubscriptionProvider>
       <CustomTemplatesProvider>
-        <CampaignStoreProvider>
-          <div className="flex min-h-screen bg-slate-50">
-            <Sidebar
-              collapsed={collapsed}
-              onToggle={() => setCollapsed((c) => !c)}
+        <div className="flex min-h-screen bg-slate-50">
+          <Sidebar
+            collapsed={collapsed}
+            onToggle={() => setCollapsed((c) => !c)}
+            onLogout={handleLogout}
+          />
+          <MobileSidebar
+            open={mobileOpen}
+            onClose={() => setMobileOpen(false)}
+            onLogout={handleLogout}
+          />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Topbar
+              onMenuClick={() => setMobileOpen(true)}
               onLogout={handleLogout}
             />
-            <MobileSidebar
-              open={mobileOpen}
-              onClose={() => setMobileOpen(false)}
-              onLogout={handleLogout}
-            />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <Topbar
-                onMenuClick={() => setMobileOpen(true)}
-                onLogout={handleLogout}
-              />
-              <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
-                <AccessGate>{children}</AccessGate>
-              </main>
-            </div>
+            <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+              <AccessGate>{children}</AccessGate>
+            </main>
           </div>
-        </CampaignStoreProvider>
+        </div>
       </CustomTemplatesProvider>
     </SubscriptionProvider>
   );

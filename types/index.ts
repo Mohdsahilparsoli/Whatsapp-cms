@@ -46,7 +46,8 @@ export type ConsentStatus = "opted_in" | "opted_out" | "pending";
 
 export interface Contact {
   id: string;
-  name: string;
+  /** Optional — phone is the only required field for a contact. */
+  name?: string;
   phone: string;
   email?: string;
   tags: string[];
@@ -75,27 +76,40 @@ export interface Template {
 export type CampaignStatus =
   | "draft"
   | "scheduled"
-  | "running"
-  | "paused"
+  | "sending"
   | "completed"
-  | "cancelled";
+  | "cancelled"
+  | "failed";
 
 export interface Campaign {
+  id: string;
+  name: string;
+  /** "all" or a specific contact tag. */
+  audienceTag: string;
+  audienceSize: number;
+  templateId: string;
+  templateName: string;
+  status: CampaignStatus;
+  /** ISO datetime string, only set for scheduled campaigns. */
+  scheduledAt?: string;
+  sentCount: number;
+  failedCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Shape used only by the still-mock Dashboard/Reports widgets
+ * (data/campaigns.ts) — kept separate from the real `Campaign` type above so
+ * migrating the real Campaigns module didn't have to touch those. */
+export interface MockCampaign {
   id: string;
   name: string;
   audience: string;
   audienceSize: number;
   templateId: string;
   templateName: string;
-  /** Human-readable schedule, or "—" for drafts / immediate sends. */
   schedule: string;
-  /** Raw `datetime-local` value for scheduled campaigns, e.g. "2026-09-20T18:30". */
-  scheduledAt?: string;
-  /** Which template library the campaign was built from. */
-  templateSource?: TemplateSource;
-  /** Owner — Client Admins only ever see their own campaigns. */
-  clientId?: string;
-  status: CampaignStatus;
+  status: "draft" | "scheduled" | "running" | "paused" | "completed" | "cancelled";
   sent: number;
   delivered: number;
   read: number;
@@ -223,12 +237,13 @@ export interface SubscriptionHistoryEntry {
 export type TemplateSource = "meta" | "custom";
 export type CustomTemplateStatus = "draft" | "custom";
 export type TemplateMediaKind = "none" | "image" | "video" | "document";
-export type TemplateButtonKind = "url" | "whatsapp";
+export type TemplateButtonKind = "url" | "call" | "whatsapp";
 
 export interface TemplateButton {
   id: string;
   kind: TemplateButtonKind;
   label: string;
+  /** A URL for "url"/"whatsapp" buttons, or a phone number for "call". */
   url: string;
 }
 

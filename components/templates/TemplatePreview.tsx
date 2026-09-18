@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, FileText, Image as ImageIcon, MessageCircle, Video } from "lucide-react";
+import { ExternalLink, FileText, Image as ImageIcon, MessageCircle, Phone, Video } from "lucide-react";
 import { fillTemplate } from "@/lib/utils";
 import type { TemplateButton, TemplateMedia } from "@/types";
 
@@ -11,6 +11,18 @@ const mediaLabels: Record<Exclude<TemplateMedia["kind"], "none">, {
   image: { label: "Image", icon: ImageIcon },
   video: { label: "Video", icon: Video },
   document: { label: "Document", icon: FileText },
+};
+
+const buttonIcons: Record<TemplateButton["kind"], React.ComponentType<{ className?: string }>> = {
+  whatsapp: MessageCircle,
+  call: Phone,
+  url: ExternalLink,
+};
+
+const buttonDefaultLabels: Record<TemplateButton["kind"], string> = {
+  whatsapp: "Chat with us",
+  call: "Call us",
+  url: "Open link",
 };
 
 /**
@@ -43,7 +55,11 @@ export default function TemplatePreview({
   return (
     <div className="rounded-xl bg-slate-100 p-4">
       <div className="ml-auto max-w-[92%] overflow-hidden rounded-2xl rounded-tr-sm bg-emerald-100 text-sm text-slate-800">
-        {mediaMeta && (
+        {media.kind === "image" && media.url.trim() && (
+          // eslint-disable-next-line @next/next/no-img-element -- previewing an uploaded file from our own /uploads path, not worth next/image's config here
+          <img src={media.url} alt="" className="h-40 w-full object-cover" />
+        )}
+        {mediaMeta && !(media.kind === "image" && media.url.trim()) && (
           <div className="flex items-center gap-2 border-b border-emerald-200/70 bg-emerald-50 px-3.5 py-3 text-xs text-emerald-900">
             <mediaMeta.icon className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
@@ -70,22 +86,20 @@ export default function TemplatePreview({
 
         {buttons.length > 0 && (
           <div className="space-y-px border-t border-emerald-200/70 bg-emerald-50">
-            {buttons.map((button) => (
-              <div
-                key={button.id}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-sky-700"
-              >
-                {button.kind === "whatsapp" ? (
-                  <MessageCircle className="h-3.5 w-3.5" />
-                ) : (
-                  <ExternalLink className="h-3.5 w-3.5" />
-                )}
-                <span className="truncate">
-                  {button.label.trim() ||
-                    (button.kind === "whatsapp" ? "Chat with us" : "Open link")}
-                </span>
-              </div>
-            ))}
+            {buttons.map((button) => {
+              const Icon = buttonIcons[button.kind];
+              return (
+                <div
+                  key={button.id}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-sky-700"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="truncate">
+                    {button.label.trim() || buttonDefaultLabels[button.kind]}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

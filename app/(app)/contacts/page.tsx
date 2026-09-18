@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Tag, Trash2, Upload } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
@@ -14,21 +14,25 @@ import Modal from "@/components/ui/Modal";
 import Drawer from "@/components/ui/Drawer";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Pagination from "@/components/ui/Pagination";
-import FormField from "@/components/ui/FormField";
+import LoadingState from "@/components/ui/LoadingState";
+import InlineAlert from "@/components/ui/InlineAlert";
 import ContactForm, {
   contactToForm,
   emptyContact,
   validateContact,
   type ContactFormValues,
 } from "@/components/forms/ContactForm";
-import { contacts as seed, messageHistory } from "@/data/contacts";
+import { messageHistory } from "@/data/contacts";
 import { formatDate } from "@/lib/utils";
 import type { Contact } from "@/types";
 
 const PAGE_SIZE = 8;
 
 export default function ContactsPage() {
-  const [rows, setRows] = useState<Contact[]>(seed);
+  const [rows, setRows] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [query, setQuery] = useState("");
   const [consent, setConsent] = useState("all");
   const [tag, setTag] = useState("all");
@@ -39,12 +43,35 @@ export default function ContactsPage() {
   const [editing, setEditing] = useState<Contact | null>(null);
   const [values, setValues] = useState<ContactFormValues>(emptyContact);
   const [errors, setErrors] = useState<Partial<Record<keyof ContactFormValues, string>>>({});
+  const [saving, setSaving] = useState(false);
 
   const [viewing, setViewing] = useState<Contact | null>(null);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [bulkTag, setBulkTag] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<Contact | "bulk" | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  async function loadContacts() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch("/api/contacts");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not load contacts.");
+      setRows(data.contacts as Contact[]);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load contacts.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    // See app/(app)/clients/page.tsx for why this eslint rule is a false
+    // positive for a plain fetch-on-mount effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadContacts();
+  }, []);
 
   const allTags = useMemo(
     () => Array.from(new Set(rows.flatMap((row) => row.tags))).sort(),
@@ -56,7 +83,7 @@ export default function ContactsPage() {
     return rows.filter((row) => {
       const matchesQuery =
         !q ||
-        row.name.toLowerCase().includes(q) ||
+        (row.name ?? "").toLowerCase().includes(q) ||
         row.phone.includes(q) ||
         (row.email ?? "").toLowerCase().includes(q);
       const matchesConsent = consent === "all" || row.consent === consent;
@@ -81,69 +108,102 @@ export default function ContactsPage() {
     setFormOpen(true);
   }
 
-  function save() {
+  async function save() {
     const nextErrors = validateContact(values);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
-    const tags = values.tags
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
+    setSaving(true);
+    try {
+      const body = {
+        name: values.name || undefined,
+        phone: values.phone,
+        email: values.email || undefined,
+        tags: values.tags,
+        consent: values.consent,
+      };
 
-    if (editing) {
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === editing.id
-            ? { ...row, ...values, email: values.email || undefined, tags }
-            : row
-        )
-      );
-      setToast(`${values.name} updated.`);
-    } else {
-      setRows((prev) => [
-        {
-          id: `ct${Date.now()}`,
-          name: values.name,
-          phone: values.phone,
-          email: values.email || undefined,
-          tags,
-          consent: values.consent,
-          consentSource: "Manual entry",
-          consentDate: "2026-09-15",
-          createdAt: "2026-09-15",
-        },
-        ...prev,
-      ]);
-      setToast(`${values.name} added to contacts.`);
+      if (editing) {
+        const res = await fetch(`/api/contacts/${editing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.errors) setErrors(data.errors);
+          else setToast(data.error ?? "Could not update contact.");
+          return;
+        }
+        setRows((prev) => prev.map((c) => (c.id === data.contact.id ? data.contact : c)));
+        setToast(`${data.contact.name || data.contact.phone} updated.`);
+        setFormOpen(false);
+      } else {
+        const res = await fetch("/api/contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.errors) setErrors(data.errors);
+          else setToast(data.error ?? "Could not add contact.");
+          return;
+        }
+        setRows((prev) => [data.contact, ...prev]);
+        setToast(`${data.contact.name || data.contact.phone} added to contacts.`);
+        setFormOpen(false);
+      }
+    } finally {
+      setSaving(false);
     }
-    setFormOpen(false);
   }
 
-  function applyBulkTag() {
+  async function applyBulkTag() {
     const tagValue = bulkTag.trim();
     if (!tagValue) return;
-    setRows((prev) =>
-      prev.map((row) =>
-        selected.includes(row.id) && !row.tags.includes(tagValue)
-          ? { ...row, tags: [...row.tags, tagValue] }
-          : row
-      )
-    );
-    setToast(`Tag “${tagValue}” added to ${selected.length} contacts.`);
+
+    const res = await fetch("/api/contacts/bulk-tag", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: selected, tag: tagValue }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setToast(data.error ?? "Could not add tag.");
+      return;
+    }
+    await loadContacts();
+    setToast(`Tag “${tagValue.toLowerCase()}” added to ${selected.length} contacts.`);
     setBulkTag("");
     setBulkTagOpen(false);
     setSelected([]);
   }
 
-  function deleteContacts() {
+  async function deleteContacts() {
     if (confirmDelete === "bulk") {
+      const res = await fetch("/api/contacts/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selected }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast(data.error ?? "Could not delete contacts.");
+        return;
+      }
       setRows((prev) => prev.filter((row) => !selected.includes(row.id)));
-      setToast(`${selected.length} contacts deleted.`);
+      setToast(`${data.deleted} contacts deleted.`);
       setSelected([]);
     } else if (confirmDelete) {
+      const res = await fetch(`/api/contacts/${confirmDelete.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast(data.error ?? "Could not delete contact.");
+        return;
+      }
       setRows((prev) => prev.filter((row) => row.id !== confirmDelete.id));
-      setToast(`${confirmDelete.name} deleted.`);
+      setToast(`${confirmDelete.name || confirmDelete.phone} deleted.`);
     }
   }
 
@@ -153,7 +213,7 @@ export default function ContactsPage() {
       header: "Contact",
       render: (row) => (
         <div>
-          <p className="font-medium text-slate-900">{row.name}</p>
+          <p className="font-medium text-slate-900">{row.name || "—"}</p>
           <p className="text-xs text-slate-400">{row.phone}</p>
         </div>
       ),
@@ -213,9 +273,25 @@ export default function ContactsPage() {
         }
       />
 
+      {/* Hidden for the App Review demo video — restore after review. */}
+      {false && (
+        <InlineAlert tone="info" className="mb-4">
+          Contacts are stored in PostgreSQL, scoped to your account — only phone number is required.
+        </InlineAlert>
+      )}
+
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           {toast}
+        </div>
+      )}
+
+      {loadError && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+          <span>{loadError}</span>
+          <Button size="sm" onClick={loadContacts}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -274,33 +350,41 @@ export default function ContactsPage() {
           </div>
         )}
 
-        <DataTable
-          columns={columns}
-          rows={paged}
-          rowKey={(row) => row.id}
-          selectable
-          selectedIds={selected}
-          onSelectionChange={setSelected}
-          emptyTitle="No contacts match your filters"
-          emptyDescription="Adjust the search or filters, or import a new list."
-        />
-        <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} />
+        {loading ? (
+          <LoadingState rows={8} label="Loading contacts" />
+        ) : (
+          <>
+            <DataTable
+              columns={columns}
+              rows={paged}
+              rowKey={(row) => row.id}
+              selectable
+              selectedIds={selected}
+              onSelectionChange={setSelected}
+              emptyTitle="No contacts match your filters"
+              emptyDescription="Adjust the search or filters, or import a new list."
+            />
+            <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPageChange={setPage} />
+          </>
+        )}
       </Card>
 
       <Modal
         open={formOpen}
-        onClose={() => setFormOpen(false)}
-        title={editing ? `Edit ${editing.name}` : "Add contact"}
+        onClose={() => !saving && setFormOpen(false)}
+        title={editing ? `Edit ${editing.name || editing.phone}` : "Add contact"}
         footer={
           <>
-            <Button onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={save}>
-              {editing ? "Save changes" : "Add contact"}
+            <Button onClick={() => setFormOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={save} disabled={saving}>
+              {saving ? "Saving…" : editing ? "Save changes" : "Add contact"}
             </Button>
           </>
         }
       >
-        <ContactForm values={values} errors={errors} onChange={setValues} />
+        <ContactForm values={values} errors={errors} onChange={setValues} tagSuggestions={allTags} />
       </Modal>
 
       <Modal
@@ -318,13 +402,19 @@ export default function ContactsPage() {
           </>
         }
       >
-        <FormField label="Tag name" value={bulkTag} onChange={setBulkTag} placeholder="festive-2026" />
+        <label className="block text-sm font-medium text-slate-700">Tag name</label>
+        <input
+          value={bulkTag}
+          onChange={(e) => setBulkTag(e.target.value)}
+          placeholder="festive-2026"
+          className="mt-1.5 h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        />
       </Modal>
 
       <Drawer
         open={Boolean(viewing)}
         onClose={() => setViewing(null)}
-        title={viewing?.name ?? "Contact"}
+        title={viewing?.name || viewing?.phone || "Contact"}
         footer={<Button onClick={() => setViewing(null)}>Close</Button>}
       >
         {viewing && (
@@ -355,7 +445,9 @@ export default function ContactsPage() {
             </dl>
 
             <div>
-              <p className="mb-2 text-xs font-semibold text-slate-500">Message history (demo)</p>
+              <p className="mb-2 text-xs font-semibold text-slate-500">
+                Message history (demo — Campaigns aren&apos;t connected to the database yet)
+              </p>
               <ul className="space-y-2">
                 {messageHistory.map((item) => (
                   <li
@@ -380,8 +472,12 @@ export default function ContactsPage() {
         title="Delete contacts"
         message={
           confirmDelete === "bulk"
-            ? `Delete ${selected.length} selected contacts? This only affects the demo data.`
-            : `Delete ${typeof confirmDelete === "object" && confirmDelete ? confirmDelete.name : ""}? This only affects the demo data.`
+            ? `Permanently delete ${selected.length} selected contacts? This cannot be undone.`
+            : `Permanently delete ${
+                typeof confirmDelete === "object" && confirmDelete
+                  ? confirmDelete.name || confirmDelete.phone
+                  : ""
+              }? This cannot be undone.`
         }
         confirmLabel="Delete"
         destructive
