@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -9,20 +9,29 @@ import SearchInput from "@/components/ui/SearchInput";
 import Tabs from "@/components/ui/Tabs";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Pagination from "@/components/ui/Pagination";
-import DemoNotice from "@/components/ui/DemoNotice";
+import InlineAlert from "@/components/ui/InlineAlert";
 import StatCard from "@/components/ui/StatCard";
-import { contacts as seed } from "@/data/contacts";
 import { formatDate } from "@/lib/utils";
 import type { Contact, ConsentStatus } from "@/types";
 
 const PAGE_SIZE = 8;
 
 export default function ConsentPage() {
-  const [rows, setRows] = useState<Contact[]>(seed);
+  const [rows, setRows] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"all" | ConsentStatus>("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [toast, setToast] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/contacts")
+      .then((res) => res.json())
+      .then((data) => setRows(data.contacts ?? []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   const counts = useMemo(
     () => ({
@@ -44,17 +53,35 @@ export default function ConsentPage() {
 
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  function setConsent(contact: Contact, consent: ConsentStatus) {
-    setRows((prev) =>
-      prev.map((row) =>
-        row.id === contact.id ? { ...row, consent, consentDate: "2026-09-15" } : row
-      )
-    );
-    setToast(
-      consent === "opted_out"
-        ? `${contact.name || contact.phone} opted out and will be excluded from campaigns.`
-        : `${contact.name || contact.phone} marked as ${consent.replace("_", " ")}.`
-    );
+  async function setConsent(contact: Contact, consent: ConsentStatus) {
+    setUpdatingId(contact.id);
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: contact.name,
+          phone: contact.phone,
+          email: contact.email,
+          tags: contact.tags,
+          consent,
+          consentSource: "Manual — Consent page",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast(data.error ?? "Could not update consent.");
+        return;
+      }
+      setRows((prev) => prev.map((r) => (r.id === contact.id ? data.contact : r)));
+      setToast(
+        consent === "opted_out"
+          ? `${contact.name || contact.phone} opted out and will be excluded from campaigns.`
+          : `${contact.name || contact.phone} marked as ${consent.replace("_", " ")}.`
+      );
+    } finally {
+      setUpdatingId(null);
+    }
   }
 
   const columns: Column<Contact>[] = [
@@ -79,12 +106,22 @@ export default function ConsentPage() {
       render: (row) => (
         <div className="flex justify-end gap-1.5">
           {row.consent !== "opted_in" && (
-            <Button size="sm" variant="primary" onClick={() => setConsent(row, "opted_in")}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => setConsent(row, "opted_in")}
+              disabled={updatingId === row.id}
+            >
               Mark opted in
             </Button>
           )}
           {row.consent !== "opted_out" && (
-            <Button size="sm" variant="danger" onClick={() => setConsent(row, "opted_out")}>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() => setConsent(row, "opted_out")}
+              disabled={updatingId === row.id}
+            >
               Opt out
             </Button>
           )}
@@ -100,10 +137,11 @@ export default function ConsentPage() {
         description="Who agreed to receive messages, where that consent came from, and who has opted out."
       />
 
-      <DemoNotice>
-        Opted-out contacts are automatically removed from campaign and bulk-send recipient counts
-        throughout this demo.
-      </DemoNotice>
+      <InlineAlert tone="info" className="mb-5">
+        This is your real Contacts data — opted-out contacts are automatically excluded from
+        Campaigns and Bulk Sender recipient counts, since both only ever target contacts whose
+        real consent is &quot;opted in&quot;.
+      </InlineAlert>
 
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
@@ -148,6 +186,7 @@ export default function ConsentPage() {
           columns={columns}
           rows={paged}
           rowKey={(row) => row.id}
+          loading={loading}
           emptyTitle="No contacts in this view"
           emptyDescription="Switch tabs or clear the search to see more."
         />

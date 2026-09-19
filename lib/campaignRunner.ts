@@ -1,29 +1,19 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { fillTemplate } from "@/lib/utils";
+import { enqueueAndProcess } from "@/lib/queueProcessor";
 
 /**
- * Runs one campaign: fetches its real audience and template, sends via
- * Meta's Graph API (same shared test-number credentials as
- * /api/whatsapp/send-test and /api/bulk-send — see those files for why this
- * is a real-but-limited implementation), and updates the campaign row with
- * the actual result. Safe to call for a campaign that's already
- * running/completed — it just re-sends (callers should avoid that, but this
- * function itself won't corrupt state).
+ * Runs one campaign: fetches its real audience and template, then sends it
+ * through the real queue (lib/queueProcessor.ts — batching + rate limiting +
+ * retryable QueueJob rows), and updates the campaign row with the actual
+ * result. Safe to call for a campaign that's already running/completed — it
+ * just re-sends (callers should avoid that, but this function itself won't
+ * corrupt state).
  */
 export async function runCampaign(campaignId: string): Promise<void> {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign) return;
-
-  const phoneNumberId = process.env.META_TEST_PHONE_NUMBER_ID;
-  const accessToken = process.env.META_TEST_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: { status: "failed" },
-    });
-    return;
-  }
 
   const template = await prisma.customTemplate.findFirst({
     where: { id: campaign.templateId, clientId: campaign.clientId },
@@ -59,36 +49,32 @@ export async function runCampaign(campaignId: string): Promise<void> {
     .filter(Boolean)
     .join("\n\n");
 
-  let sent = 0;
-  let failed = 0;
+  const result = await enqueueAndProcess({
+    clientId: campaign.clientId,
+    name: campaign.name,
+    campaignId: campaign.id,
+    contacts: contacts.map((c: { id: string; phone: string; name: string | null }) => ({
+      id: c.id,
+      phone: c.phone,
+      name: c.name,
+    })),
+    templateId: template.id,
+    templateName: template.name,
+    messageText,
+  });
 
-  for (const contact of contacts) {
-    const to = contact.phone.replace(/\D/g, "");
-    try {
-      const res = await fetch(`https://graph.facebook.com/v25.0/${phoneNumberId}/messages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "text",
-          text: { body: messageText },
-        }),
-      });
-      if (res.ok) sent += 1;
-      else failed += 1;
-    } catch {
-      failed += 1;
-    }
-    // Small gap between sends so we don't hammer the API in a tight loop.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+  if (result.paused) {
+    // Leave it as "scheduled" so the scheduler picks it back up once the
+    // queue is unpaused, instead of silently marking it done/failed.
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: campaign.scheduledAt ? "scheduled" : "draft" },
+    });
+    return;
   }
 
   await prisma.campaign.update({
     where: { id: campaignId },
-    data: { status: "completed", sentCount: sent, failedCount: failed },
+    data: { status: "completed", sentCount: result.sent, failedCount: result.failed },
   });
 }

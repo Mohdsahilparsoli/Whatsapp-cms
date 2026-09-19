@@ -10,11 +10,11 @@ import TrialReminder, {
   TrialReminderCompact,
 } from "@/components/subscription/TrialReminder";
 
-const notifications = [
-  { id: "n1", text: "Campaign “Festive Drop 2026” is 74% complete", time: "10 min ago" },
-  { id: "n2", text: "3 messages failed in the last batch", time: "38 min ago" },
-  { id: "n3", text: "Template “appointment_reminder” is pending review", time: "2 hours ago" },
-];
+interface NotificationItem {
+  id: string;
+  text: string;
+  time: string;
+}
 
 export default function Topbar({
   onMenuClick,
@@ -27,6 +27,34 @@ export default function Topbar({
   const { user } = useAuth();
   const [openMenu, setOpenMenu] = useState<"none" | "bell" | "profile">("none");
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    function load() {
+      fetch("/api/notifications")
+        .then((res) => res.json())
+        .then((data) => {
+          if (!cancelled) {
+            setNotifications(data.notifications ?? []);
+            setNotificationsLoaded(true);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setNotificationsLoaded(true);
+        });
+    }
+
+    load();
+    const interval = setInterval(load, 60_000); // real events can appear any time (a scheduled campaign firing, a batch failing) — refresh periodically
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -86,7 +114,9 @@ export default function Topbar({
           className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500"
         >
           <Bell className="h-4 w-4" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-indigo-600" />
+          {notifications.length > 0 && (
+            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-indigo-600" />
+          )}
         </button>
 
         <button
@@ -110,12 +140,20 @@ export default function Topbar({
         {openMenu === "bell" && (
           <div className="absolute right-0 top-12 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
             <p className="px-2 py-1.5 text-xs font-semibold text-slate-500">Notifications</p>
-            {notifications.map((item) => (
-              <div key={item.id} className="rounded-lg px-2 py-2 hover:bg-slate-50">
-                <p className="text-xs text-slate-700">{item.text}</p>
-                <p className="mt-0.5 text-[11px] text-slate-400">{item.time}</p>
-              </div>
-            ))}
+            {!notificationsLoaded ? (
+              <p className="px-2 py-3 text-xs text-slate-400">Loading…</p>
+            ) : notifications.length === 0 ? (
+              <p className="px-2 py-3 text-xs text-slate-400">
+                Nothing new — real events (a campaign finishing, a batch failing) will show up here.
+              </p>
+            ) : (
+              notifications.map((item) => (
+                <div key={item.id} className="rounded-lg px-2 py-2 hover:bg-slate-50">
+                  <p className="text-xs text-slate-700">{item.text}</p>
+                  {item.time && <p className="mt-0.5 text-[11px] text-slate-400">{item.time}</p>}
+                </div>
+              ))
+            )}
           </div>
         )}
 

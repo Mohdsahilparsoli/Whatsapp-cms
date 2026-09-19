@@ -74,10 +74,13 @@ lib/                    auth (real, both roles — verifies against the server),
                         templateMapper, fileParse (client-side CSV/Excel
                         parsing), customTemplates (real create/list — see
                         Templates section below), campaignMapper,
-                        campaignRunner, campaignScheduler, nav config, utils,
-                        subscription (still localStorage — not yet migrated)
+                        campaignRunner, campaignScheduler, campaignValidation,
+                        queueSettings, queueProcessor, messageMapper,
+                        reportsAggregate, nav config, utils, subscription
+                        (still localStorage — not yet migrated)
 prisma/                 schema.prisma (Client, Session, AdminUser,
-                        AdminSession, Contact, CustomTemplate, Campaign), seed.ts
+                        AdminSession, Contact, CustomTemplate, Campaign,
+                        QueueSettings, QueueJob, MessageRecord), seed.ts
 prisma.config.ts        Prisma 7 config — DB URL, migrations path, seed command
 scripts/                create-admin.ts, reset-admin-password.ts — terminal-only
                         bootstrap/recovery for the single Super Admin account
@@ -218,21 +221,194 @@ types/                  shared TypeScript types
   "all" opted-in contacts, or narrowed by one tag. No fake opt-out
   percentage — a contact is only included if its real `consent` is
   `opted_in`.
-- **Bulk Sender** (`app/api/bulk-send/route.ts`) is "send now" only, with a
-  live per-contact result list (sent/failed) after it finishes.
-- **Campaigns** (`app/api/campaigns/*`) adds Draft / Send Now / **Schedule**,
-  plus Edit and Delete:
+- Both **Bulk Sender** (`app/api/bulk-send/route.ts`) and **Campaigns**
+  (`app/api/campaigns/*`) send through the real Queue & Rate Limiting system
+  (`lib/queueProcessor.ts`) rather than looping directly — see that section
+  below for what that means. Bulk Sender is "send now" only; Campaigns adds
+  Draft / Send Now / **Schedule**, plus Edit and Delete:
   - Draft and Edit are always available for `draft`/`scheduled` campaigns.
-  - "Send Now" runs the same send loop synchronously and returns the final
-    result.
+  - "Send Now" runs the send synchronously and returns the final result.
   - "Schedule" is picked up by an **in-process scheduler**
     (`lib/campaignScheduler.ts`) — a `setInterval` inside the Next.js server
     that checks every 30 seconds for due campaigns and sends them via
     `lib/campaignRunner.ts`. This is real, but only while the server process
     stays running (`npm run dev` / `npm start` kept up); it will not fire on
     a serverless host where the process can go idle between requests.
-  - Delivered/read counts aren't tracked (`sentCount`/`failedCount` only) —
-    that requires Meta's delivery-status webhooks, a separate, later phase.
+
+## Queue & Rate Limiting (real)
+
+- `QueueSettings` (per client: messagesPerMinute, batchSize,
+  maxRetryAttempts, paused) and `QueueJob` (one row per batch) are real
+  tables — see `lib/queueProcessor.ts`.
+- Every real send (Campaigns, Bulk Sender) is split into batches of
+  `batchSize` contacts, and each send inside a batch is spaced out to
+  respect `messagesPerMinute` — this is a genuine, working rate limit, not a
+  cosmetic delay.
+- A batch where **every** message failed is marked `failed` and is
+  retryable from the Queue page (`POST /api/queue/jobs/[id]/retry`), up to
+  `maxRetryAttempts`. A batch with some individual failures is `completed`
+  (those failures are just recorded, not auto-retried).
+- **Pause** (`POST /api/queue/pause`) stops NEW sends from starting — a
+  scheduled campaign whose time comes while paused is left as `scheduled`
+  so the scheduler picks it back up once resumed, instead of silently
+  failing it.
+
+## Message Status (real send tracking + real, optional webhook)
+
+- Every individual send attempt from the queue (success or failure) creates
+  a real `MessageRecord` row — see `lib/queueProcessor.ts`'s
+  `recordMessage()`. A retry updates the same row (matched on
+  `queueJobId` + `recipientPhone`) rather than duplicating it.
+- Status starts at `sent` or `failed`. Reaching `delivered`/`read` requires
+  Meta's real delivery-status webhook, which this app implements at
+  `app/api/webhooks/meta/route.ts` (`GET` for the one-time verification
+  handshake, `POST` for status updates) — but that endpoint only ever
+  receives anything if:
+  1. This server is reachable on a **public HTTPS URL**. `npm run dev`
+     alone only listens on localhost, which Meta cannot reach — use
+     [ngrok](https://ngrok.com) (`ngrok http 3000`) for local development,
+     or a real deployment.
+  2. That public URL + a `META_WEBHOOK_VERIFY_TOKEN` you make up (put the
+     same value in `.env` and the Meta dashboard) are saved as this app's
+     webhook in **Meta App Dashboard → WhatsApp → Configuration →
+     Webhooks**, subscribed to the `messages` field.
+  Without that setup, every message will only ever show `sent`/`failed` —
+  expected, not a bug.
+- The webhook always responds `200`, even on an internal error while
+  processing a payload, because Meta can disable a webhook that repeatedly
+  errors or times out.
+
+## WhatsApp Account Setup (real — two connect methods)
+
+Real, per-client WhatsApp Business Account storage (`WhatsAppAccount` model,
+one row per client), replacing the shared `META_TEST_*` env vars used
+everywhere else so far. Two ways to connect, both real:
+
+- **Enter manually** (`POST /api/whatsapp-setup/connect-manual`) — paste a
+  WABA ID, Phone Number ID, and access token (from Meta's own API Setup
+  page). We call Meta's API with those credentials *before* saving anything
+  — only a real, working token gets stored. **Works today**, no extra Meta
+  configuration needed.
+- **Connect via Facebook** (Embedded Signup) — `app/(app)/whatsapp-setup/page.tsx`
+  loads Meta's JS SDK and calls `FB.login()` with a Login Configuration id;
+  the resulting authorization `code` plus the WABA/phone number id (which
+  arrive separately, via a `window.postMessage` event Meta's popup sends)
+  are both sent to `POST /api/whatsapp-setup/connect`, which exchanges the
+  code for a real access token, fetches the phone number's real details,
+  and subscribes this app to that WABA's webhooks. **Needs**, before it'll
+  actually work: (1) Meta App Review approved for `whatsapp_business_management`
+  advanced access, (2) a WhatsApp Embedded Signup Login Configuration
+  created in the Meta App Dashboard (Facebook Login for Business →
+  Configurations) with its id set as `NEXT_PUBLIC_META_CONFIG_ID`, and (3)
+  `NEXT_PUBLIC_META_APP_ID` / `META_APP_SECRET` in `.env`. Until then, the
+  code is correct and ready — Meta's own popup will show its own error, or
+  the token exchange will fail with a real Meta error, which is expected.
+
+Credentials are encrypted at rest (`lib/crypto.ts`, AES-256-GCM, key from
+`CREDENTIALS_ENCRYPTION_KEY` in `.env`) and only ever shown masked
+(`EAAP••••b905`) after saving — never in full again. The setup checklist on
+the page is also real and persisted per client (`checklistDone`), though it
+tracks the user's own manual progress, not anything Meta can confirm from
+our side.
+
+**Not done in this pass**: wiring Campaigns/Bulk Sender/Inbox/Queue to use
+a connected client's own credentials instead of the shared `META_TEST_*`
+ones — they all still use the shared test number regardless of what's
+connected here. That's the natural next step once this is tested end-to-end.
+
+## Client Admin Dashboard + Notifications bell (real)
+
+- `GET /api/dashboard/client` powers the whole dashboard: real contact
+  count, active-campaign count, Sent/Delivered/Read/Failed totals (via the
+  same `aggregateTotals()` Reports uses), the 5 most recent real campaigns,
+  and the 4 most recent real `MessageRecord`s ("Recent messages" — replaces
+  the old fake "Recent inbox conversations" list, since Inbox's incoming
+  side still isn't real; see that section's own README note above).
+- "WhatsApp connection" is now labeled honestly as a shared test number
+  rather than a fake "Connected" badge, since real per-client connections
+  are the still-pending WhatsApp Account Setup phase.
+- Subscription section is unchanged — still `lib/subscription.tsx`
+  (localStorage), out of scope here.
+- The header's notification bell (`components/layout/Topbar.tsx`) now calls
+  `GET /api/notifications`, which computes real notifications on the fly —
+  no separate table. For a Client Admin: campaigns that finished in the
+  last 7 days (with real sent/failed counts), batches that failed in the
+  last 7 days, and a pending-drafts count. For Super Admin: clients added
+  in the last 7 days. Refetched every 60s; the unread dot only shows when
+  there's something real to show.
+
+## Settings (all 4 tabs real)
+
+- **Profile**: `PUT /api/auth/profile` — name/email/phone save to the
+  signed-in user's real row (`Client` or `AdminUser`), for both roles.
+  Saving refreshes the header/sidebar immediately via `useAuth()`'s new
+  `updateUser()`, without a full session refetch.
+- **Password**: unchanged — already real (`POST /api/auth/change-password`).
+- **Notifications** (`PUT /api/settings/notifications`) and **Preferences**
+  (`PUT /api/settings/preferences`): stored as JSON columns
+  (`notificationPrefs`, `cmsPrefs`) on `Client`/`AdminUser` — simple
+  per-user key/value settings with no query needs of their own, same
+  reasoning as `CustomTemplate.buttons`. Null until saved once; the
+  frontend applies its own defaults until then. `GET /api/auth/session` and
+  `POST /api/auth/login` both return these on `user.notifications` /
+  `user.preferences`, so they're available immediately without an extra
+  fetch.
+
+## Consent & Opt-out (real)
+
+- Reads and writes the same real `Contact` rows as the Contacts page — this
+  is a view/action page over that data, not a separate table.
+- "Mark opted in" / "Opt out" call the existing `PUT /api/contacts/[id]`,
+  which now auto-updates `consentDate` (to now) and `consentSource` (to
+  `"Manual — Consent page"` unless the caller passes a different source)
+  whenever `consent` actually changes — editing unrelated fields elsewhere
+  (name, tags, ...) never silently resets these.
+- Opted-out contacts are genuinely excluded from Campaigns/Bulk Sender —
+  both only ever query contacts whose real `consent` is `opted_in`.
+
+## Inbox — real ticks + real photo/document sending
+
+- Text replies (`/api/whatsapp/send-test`) now also create a real
+  `MessageRecord`, so they show up on Message Status/Reports **and** so the
+  Inbox itself can poll for real WhatsApp-style ticks: ✓ grey (sent), ✓✓
+  grey (delivered), ✓✓ blue (read) — `Ticks()` in
+  `app/(app)/inbox/page.tsx` reads each message's real `status`, refreshed
+  every 4s via `GET /api/whatsapp/message-status?ids=...`. Delivered/read
+  only ever appear once the delivery webhook is configured (same caveat as
+  Message Status).
+- The paperclip button uploads a photo (jpg/png/webp) or document
+  (pdf/doc/docx/xls/xlsx/txt) via `POST /api/whatsapp/upload` (saved to
+  local disk under `public/uploads/inbox/<clientId>/`, same tradeoff as
+  Template media — self-hosted only, not serverless), then sends it via
+  `POST /api/whatsapp/send-media` as a real WhatsApp image/document message.
+- **Important**: Meta's servers fetch the file from the URL you send them —
+  on `localhost` that URL isn't reachable from the internet, so a photo/doc
+  send will fail (same public-URL requirement as the delivery webhook; use
+  ngrok or a real deployment). Text messages don't have this limitation.
+- **What's still not real**: incoming messages. The conversation list and
+  each customer's own messages are still the seeded mock data
+  (`data/campaigns.ts`) — real incoming messages require each client to
+  have its own connected WhatsApp Business Account (so an incoming message
+  can be routed to the right client), which is the still-pending "WhatsApp
+  Account Setup" phase. With only one shared test number today, there's no
+  reliable way to know which client an inbound message belongs to, so it's
+  intentionally not wired up yet rather than guessing.
+
+## Reports & Analytics (real)
+
+- Built entirely from real `MessageRecord` rows — no mock numbers anywhere,
+  including the CSV export.
+- Client Admin (`GET /api/reports`): totals, a 7-day chart, and a
+  per-campaign performance table for their own client only, with a real
+  date-range and campaign filter.
+- Super Admin (`GET /api/reports/admin`): the same totals/chart across
+  **every** client, plus a real "top clients by volume" ranking —
+  aggregated live from `MessageRecord` counts grouped by `clientId`, not
+  the static `Client.messagesSent` field (which is unrelated, see that
+  field's comment in `schema.prisma`).
+- "Recipients" = total message attempts (each `MessageRecord` row is one
+  send to one recipient); "Delivered"/"Read" only count what Meta's webhook
+  has actually confirmed — same caveat as Message Status above.
 
 ## Notes
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, FileText, Loader2, Send, XCircle } from "lucide-react";
+import { FileText, Loader2, Send } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card, { CardHeader } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -22,7 +22,6 @@ interface SendResult {
   sent: number;
   failed: number;
   skipped: number;
-  results: { contactId: string; name: string | null; phone: string; ok: boolean; error?: string }[];
 }
 
 export default function BulkSenderPage() {
@@ -139,23 +138,13 @@ export default function BulkSenderPage() {
                 </span>
               )}
             </div>
-            <ul className="max-h-56 space-y-1.5 overflow-y-auto">
-              {result.results.map((r) => (
-                <li
-                  key={r.contactId}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs"
-                >
-                  {r.ok ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600" />
-                  )}
-                  <span className="font-medium text-slate-800">{r.name || r.phone}</span>
-                  <span className="text-slate-400">{r.phone}</span>
-                  {r.error && <span className="ml-auto text-red-600">{r.error}</span>}
-                </li>
-              ))}
-            </ul>
+            <p className="text-xs text-slate-500">
+              This send went through the real queue — see{" "}
+              <Link href="/queue" className="text-indigo-600 underline">
+                Queue &amp; Rate Limiting
+              </Link>{" "}
+              for per-batch detail and to retry any failed batch.
+            </p>
             <Button size="sm" onClick={() => setResult(null)}>
               Dismiss
             </Button>

@@ -57,6 +57,14 @@ model Client {
   contacts     Int          @default(0)
   plan         String       @default("Free Trial")
 
+  /// Real Settings → Notifications / Preferences (Settings page). Free-form
+  /// JSON rather than dedicated columns since these are simple per-user
+  /// key/value toggles with no query/filter needs of their own — same
+  /// reasoning as CustomTemplate.buttons. Null until the user saves that
+  /// tab once; the frontend applies its own defaults until then.
+  notificationPrefs Json?
+  cmsPrefs          Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -64,6 +72,10 @@ model Client {
   contactRecords Contact[]
   customTemplates CustomTemplate[]
   campaigns Campaign[]
+  queueSettings QueueSettings?
+  queueJobs QueueJob[]
+  messageRecords MessageRecord[]
+  whatsappAccount WhatsAppAccount?
 
   @@map("clients")
 }
@@ -92,6 +104,12 @@ model AdminUser {
   passwordHash String
   name         String
   email        String
+  phone        String?
+
+  /// Real Settings → Notifications / Preferences — see the matching fields
+  /// on Client for why these are JSON.
+  notificationPrefs Json?
+  cmsPrefs          Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -250,4 +268,151 @@ model Campaign {
   @@index([clientId])
   @@index([status, scheduledAt])
   @@map("campaigns")
+}
+
+enum QueueJobStatus {
+  queued
+  processing
+  completed
+  failed
+}
+
+/// One row per client — rate-limit knobs used by lib/queueProcessor.ts.
+/// Created lazily with sane defaults the first time a client's settings are
+/// read (see lib/queueSettings.ts), so no seed data is needed.
+model QueueSettings {
+  id       String @id @default(cuid())
+  clientId String @unique
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  messagesPerMinute Int     @default(250)
+  batchSize         Int     @default(250)
+  maxRetryAttempts  Int     @default(3)
+  /// While true, no NEW batches start (queued jobs stay queued; a batch
+  /// already mid-send finishes first) — see lib/queueProcessor.ts.
+  paused            Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("queue_settings")
+}
+
+/// One batch of contacts from a single campaign/bulk send. Real rate
+/// limiting happens by spacing out the individual sends inside a batch
+/// (lib/queueProcessor.ts); this row is the visible, retryable unit of work.
+model QueueJob {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  /// Campaign this batch belongs to — null for a one-off Bulk Sender send.
+  campaignId String?
+  /// Display name (campaign/bulk-send name at the time this batch was queued).
+  name String
+
+  /// Contact ids in this batch — used to actually (re)send on "Retry".
+  contactIds String[]
+  templateId String
+  /// The fully-filled message text at the time this batch was queued —
+  /// stored so "Retry" sends exactly the same message even if the source
+  /// template has since been edited.
+  messageText String @default("")
+
+  batchSize   Int
+  attempts    Int            @default(0)
+  maxAttempts Int            @default(3)
+  status      QueueJobStatus @default(queued)
+  sentCount   Int            @default(0)
+  failedCount Int            @default(0)
+  errorMessage String?
+  lastRunAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status])
+  @@map("queue_jobs")
+}
+
+enum MessageStatusValue {
+  sent
+  delivered
+  read
+  failed
+}
+
+/// One row per actual WhatsApp send attempt (real — created by
+/// lib/queueProcessor.ts for every contact it sends to, whether it
+/// succeeded or failed). delivered/read only ever get filled in if Meta's
+/// delivery-status webhook is configured and reachable — see
+/// app/api/webhooks/meta/route.ts and README-BACKEND.md for the real setup
+/// this requires (a public URL; ngrok for local dev).
+model MessageRecord {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  campaignId   String?
+  campaignName String?
+  queueJobId   String?
+
+  recipientName  String?
+  recipientPhone String
+
+  templateId   String?
+  templateName String?
+  preview      String
+
+  /// Meta's id for this specific message — how the webhook matches an
+  /// incoming status update back to this row. Unique because Meta's ids are
+  /// globally unique, so no clientId is needed to disambiguate a webhook hit.
+  whatsappMessageId String? @unique
+  status            MessageStatusValue
+  errorMessage      String?
+
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  failedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("message_records")
+}
+
+/// One row per client — the real, per-client WhatsApp Business Account
+/// connection made via Meta's Embedded Signup flow (see
+/// app/(app)/whatsapp-setup/page.tsx and app/api/whatsapp-setup/*).
+/// Replaces the shared META_TEST_* env vars used everywhere else in this
+/// app so far — once connected, this client's own sends should use these
+/// credentials instead (a follow-up wiring step, not part of this model).
+model WhatsAppAccount {
+  id       String @id @default(cuid())
+  clientId String @unique
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  /// Manually tracked progress through the setup checklist shown on the
+  /// page — real and persisted, but independent of Meta's own state (we
+  /// have no way to verify e.g. "Business verified" from our side).
+  checklistDone Int[] @default([])
+
+  connected     Boolean   @default(false)
+  businessName  String?
+  wabaId        String?
+  phoneNumberId String?
+  displayNumber String?
+  qualityRating String?
+  /// AES-256-GCM ciphertext (base64: iv.authTag.ciphertext) — see
+  /// lib/crypto.ts. Never stored or returned in plain text.
+  accessTokenEnc String?
+  connectedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("whatsapp_accounts")
 }

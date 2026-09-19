@@ -28,6 +28,10 @@ interface AuthContextValue {
   ready: boolean;
   login: (userId: string, password: string, remember: boolean) => Promise<LoginResult>;
   logout: () => void;
+  /** Updates the in-memory user (e.g. after Settings saves a profile edit)
+   * without a full session refetch — the caller already has the server's
+   * fresh response. */
+  updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -91,9 +95,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
   }, []);
 
+  const updateUser = useCallback((next: User) => {
+    setUser(next);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, ready, login, logout }),
-    [user, ready, login, logout]
+    () => ({ user, ready, login, logout, updateUser }),
+    [user, ready, login, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireClient } from "@/lib/apiGuards";
 import { fillTemplate } from "@/lib/utils";
+import { enqueueAndProcess } from "@/lib/queueProcessor";
 
 /**
  * ⚠️ Same demo/testing scope as /api/whatsapp/send-test — one shared test
@@ -9,26 +10,14 @@ import { fillTemplate } from "@/lib/utils";
  *
  * Only Custom Templates (status "custom") can be used here — Meta-Approved
  * templates in this app are still mock data (data/campaigns.ts) and are not
- * real, registered Meta templates, so Meta would reject them. Sending a
- * plain-text version of a custom template only delivers to a recipient who
- * has messaged the test number in the last 24 hours (Meta's messaging
- * window rule) — same limitation as the Inbox "send real message" feature.
+ * real, registered Meta templates, so Meta would reject them. Sending goes
+ * through the real queue (lib/queueProcessor.ts) — batched and rate-limited
+ * per the client's Queue & Rate Limiting settings, producing real,
+ * retryable QueueJob rows visible on that page.
  */
 export async function POST(request: Request) {
   const auth = await requireClient();
   if (auth instanceof NextResponse) return auth;
-
-  const phoneNumberId = process.env.META_TEST_PHONE_NUMBER_ID;
-  const accessToken = process.env.META_TEST_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
-    return NextResponse.json(
-      {
-        error:
-          "WhatsApp test credentials are not configured. Add META_TEST_PHONE_NUMBER_ID and META_TEST_ACCESS_TOKEN to .env.",
-      },
-      { status: 500 }
-    );
-  }
 
   let body: { contactIds?: string[]; templateId?: string; variables?: string[] };
   try {
@@ -79,52 +68,31 @@ export async function POST(request: Request) {
     .filter(Boolean)
     .join("\n\n");
 
-  const results: { contactId: string; name: string | null; phone: string; ok: boolean; error?: string }[] = [];
+  const result = await enqueueAndProcess({
+    clientId: auth.clientId,
+    name: `Bulk send — ${template.name}`,
+    contacts: contacts.map((c: { id: string; phone: string; name: string | null }) => ({
+      id: c.id,
+      phone: c.phone,
+      name: c.name,
+    })),
+    templateId: template.id,
+    templateName: template.name,
+    messageText,
+  });
 
-  for (const contact of contacts) {
-    const to = contact.phone.replace(/\D/g, "");
-    try {
-      const res = await fetch(`https://graph.facebook.com/v25.0/${phoneNumberId}/messages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "text",
-          text: { body: messageText },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        results.push({
-          contactId: contact.id,
-          name: contact.name,
-          phone: contact.phone,
-          ok: false,
-          error: data?.error?.message ?? "Meta rejected the message.",
-        });
-      } else {
-        results.push({ contactId: contact.id, name: contact.name, phone: contact.phone, ok: true });
-      }
-    } catch {
-      results.push({
-        contactId: contact.id,
-        name: contact.name,
-        phone: contact.phone,
-        ok: false,
-        error: "Could not reach the WhatsApp API.",
-      });
-    }
-    // Small gap between sends so we don't hammer the API in a tight loop.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+  if (result.paused) {
+    return NextResponse.json(
+      { error: "The queue is paused — resume it from Queue & Rate Limiting before sending." },
+      { status: 409 }
+    );
   }
 
   const skipped = contactIds.length - contacts.length; // not opted-in, or not this client's
-  const sent = results.filter((r) => r.ok).length;
-  const failed = results.filter((r) => !r.ok).length;
-
-  return NextResponse.json({ total: contactIds.length, sent, failed, skipped, results });
+  return NextResponse.json({
+    total: contactIds.length,
+    sent: result.sent,
+    failed: result.failed,
+    skipped,
+  });
 }

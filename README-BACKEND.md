@@ -139,21 +139,25 @@ This is Phase 1 + 2 of an agreed multi-phase plan. On purpose, it does
    (`npm run create-admin` / `npm run reset-admin-password`). If a real
    multi-admin product is ever needed, that's a bigger, separate feature
    (roles/permissions, invite flow, etc.) — not an oversight to silently fix.
-4. Every other module (subscriptions, WhatsApp Account Setup, Message
-   Status, Inbox's incoming side, Consent, Reports, etc.) is still
-   `localStorage`/mock-based and has none of the above considerations yet
-   either — they're simply out of scope for this phase.
+4. Every other module (subscriptions, WhatsApp Account Setup, Inbox's
+   incoming side) is still `localStorage`/mock-based and has none of the
+   above considerations yet either — they're simply out of scope for this
+   phase.
 5. `lib/customTemplates.tsx` still seeds a couple of sample rows (Templates
    Phase 1) against the **old** demo client ID (`"c6"`, from
    `data/clients.ts`). A real client created via the Clients page gets a
    different (database-generated) ID, so those specific sample rows won't
    show up for them — this is expected for now and will sort itself out once
    those modules move to the database in a later phase.
-6. **Delivered/read tracking isn't real yet.** Campaigns and Bulk Sender only
-   track `sentCount`/`failedCount` (the real result of the API call) — actual
-   delivery/read status requires Meta's delivery-status webhooks, which
-   aren't wired up (a later, separate phase — see the Message Status page,
-   which is still mock data).
+6. **Delivered/read status needs the webhook configured to actually update.**
+   Message Status is real (a `MessageRecord` row per send), and the webhook
+   receiver at `app/api/webhooks/meta/route.ts` genuinely updates
+   delivered/read when it receives Meta's status events — but Meta can only
+   reach that endpoint if this server is on a public HTTPS URL with the
+   webhook registered in the Meta App dashboard (see README-CMS.md's
+   "Message Status" section). Without that setup, every message will
+   correctly show `sent`/`failed` and never progress further — expected,
+   not a bug.
 7. **The Campaign scheduler only runs while the server stays up.**
    `lib/campaignScheduler.ts` is a `setInterval` inside the Next.js process —
    real, but not a durable queue. If you stop the server before a scheduled

@@ -1,8 +1,6 @@
 import type {
   MockCampaign,
   Conversation,
-  MessageRecord,
-  QueueJob,
   Template,
 } from "@/types";
 
@@ -167,47 +165,6 @@ export const campaigns: MockCampaign[] = [
   },
 ];
 
-const statusPool = ["delivered", "read", "sent", "failed", "queued"] as const;
-
-export const messageRecords: MessageRecord[] = Array.from({ length: 48 }, (_, i) => {
-  const status = statusPool[i % statusPool.length];
-  const campaign = campaigns[i % 4];
-  return {
-    id: `msg${i + 1}`,
-    recipientName: `${["Aarav Sharma", "Diya Nair", "Rohan Reddy", "Isha Kapoor", "Kabir Iyer", "Meera Singh"][i % 6]}`,
-    recipientPhone: `+91 9${(812000000 + i * 4317).toString().slice(0, 9)}`,
-    campaignName: campaign.name,
-    preview:
-      status === "failed"
-        ? "Hi Aarav, our festive sale is live…"
-        : "Hi there, your order has been shipped…",
-    status,
-    sentAt: `2026-09-${((i % 13) + 1).toString().padStart(2, "0")} ${((i % 12) + 8)
-      .toString()
-      .padStart(2, "0")}:${((i * 7) % 60).toString().padStart(2, "0")}`,
-    error: status === "failed" ? "131026 — Message undeliverable (number not on WhatsApp)" : undefined,
-    timeline: [
-      { label: "Queued", time: "10:02:11" },
-      { label: "Sent to WhatsApp", time: "10:02:14" },
-      ...(status === "failed"
-        ? [{ label: "Failed", time: "10:02:19" }]
-        : [{ label: "Delivered", time: "10:02:21" }]),
-      ...(status === "read" ? [{ label: "Read", time: "10:14:03" }] : []),
-    ],
-  };
-});
-
-export const queueJobs: QueueJob[] = [
-  { id: "q1", campaignName: "Festive Drop 2026", batchSize: 250, status: "processing", attempts: 1, lastRunAt: "2026-09-15 11:42" },
-  { id: "q2", campaignName: "Festive Drop 2026", batchSize: 250, status: "queued", attempts: 0, lastRunAt: "—" },
-  { id: "q3", campaignName: "VIP early access", batchSize: 100, status: "completed", attempts: 1, lastRunAt: "2026-09-14 11:08" },
-  { id: "q4", campaignName: "Cart reminder — September", batchSize: 250, status: "queued", attempts: 0, lastRunAt: "—" },
-  { id: "q5", campaignName: "Order updates — weekly batch", batchSize: 500, status: "failed", attempts: 3, lastRunAt: "2026-09-08 09:21", error: "Rate limit reached — retry scheduled" },
-  { id: "q6", campaignName: "Monsoon Sale", batchSize: 500, status: "completed", attempts: 1, lastRunAt: "2026-08-18 09:44" },
-  { id: "q7", campaignName: "Festive Drop 2026", batchSize: 250, status: "queued", attempts: 0, lastRunAt: "—" },
-  { id: "q8", campaignName: "Order updates — weekly batch", batchSize: 500, status: "completed", attempts: 2, lastRunAt: "2026-09-08 09:02" },
-];
-
 export const conversations: Conversation[] = [
   {
     id: "cv0",
@@ -328,12 +285,3 @@ export const conversations: Conversation[] = [
   },
 ];
 
-export const dailyStats = [
-  { label: "Mon", sent: 1240, delivered: 1190, read: 780 },
-  { label: "Tue", sent: 1860, delivered: 1802, read: 1120 },
-  { label: "Wed", sent: 940, delivered: 905, read: 540 },
-  { label: "Thu", sent: 2310, delivered: 2240, read: 1490 },
-  { label: "Fri", sent: 2780, delivered: 2680, read: 1810 },
-  { label: "Sat", sent: 1520, delivered: 1470, read: 990 },
-  { label: "Sun", sent: 680, delivered: 651, read: 410 },
-];

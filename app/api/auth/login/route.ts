@@ -41,7 +41,10 @@ export async function POST(request: Request) {
       userId: admin.userId,
       name: admin.name,
       email: admin.email,
+      phone: admin.phone,
       role: "super_admin",
+      notifications: admin.notificationPrefs as User["notifications"],
+      preferences: admin.cmsPrefs as User["preferences"],
     };
     return NextResponse.json({ user });
   }
@@ -66,9 +69,12 @@ export async function POST(request: Request) {
       userId: client.userId,
       name: client.name,
       email: client.email,
+      phone: client.phone,
       role: "client_admin",
       clientId: client.id,
       clientName: client.name,
+      notifications: client.notificationPrefs as User["notifications"],
+      preferences: client.cmsPrefs as User["preferences"],
     };
     return NextResponse.json({ user });
   }

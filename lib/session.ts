@@ -21,6 +21,8 @@ export interface ClientPublic {
   messagesSent: number;
   contacts: number;
   plan: string;
+  notificationPrefs: unknown;
+  cmsPrefs: unknown;
 }
 
 export function toPublicClient(client: {
@@ -35,6 +37,8 @@ export function toPublicClient(client: {
   messagesSent: number;
   contacts: number;
   plan: string;
+  notificationPrefs?: unknown;
+  cmsPrefs?: unknown;
 }): ClientPublic {
   return {
     id: client.id,
@@ -48,6 +52,8 @@ export function toPublicClient(client: {
     messagesSent: client.messagesSent,
     contacts: client.contacts,
     plan: client.plan,
+    notificationPrefs: client.notificationPrefs ?? null,
+    cmsPrefs: client.cmsPrefs ?? null,
   };
 }
 

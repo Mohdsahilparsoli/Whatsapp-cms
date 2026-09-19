@@ -1,14 +1,32 @@
 export type Role = "super_admin" | "client_admin";
 
+export interface NotificationPrefs {
+  campaignComplete: boolean;
+  deliveryFailures: boolean;
+  newInboxMessage: boolean;
+  weeklySummary: boolean;
+}
+
+export interface CmsPrefs {
+  timezone: string;
+  dateFormat: string;
+  language: string;
+  defaultList: string;
+}
+
 export interface User {
   id: string;
   userId: string;
   name: string;
   email: string;
+  phone?: string | null;
   role: Role;
   /** Client Admins are scoped to exactly one client; Super Admins to none. */
   clientId?: string;
   clientName?: string;
+  /** Null until the user saves that Settings tab once. */
+  notifications?: NotificationPrefs | null;
+  preferences?: CmsPrefs | null;
 }
 
 export type ClientStatus = "active" | "suspended" | "expired";
@@ -117,35 +135,39 @@ export interface MockCampaign {
   createdAt: string;
 }
 
-export type MessageStatusValue =
-  | "queued"
-  | "sent"
-  | "delivered"
-  | "read"
-  | "failed";
+export type MessageStatusValue = "sent" | "delivered" | "read" | "failed";
 
 export interface MessageRecord {
   id: string;
-  recipientName: string;
+  recipientName: string | null;
   recipientPhone: string;
-  campaignName: string;
+  campaignName: string | null;
+  templateName: string | null;
   preview: string;
   status: MessageStatusValue;
-  sentAt: string;
-  error?: string;
-  timeline: { label: string; time: string }[];
+  whatsappMessageId: string | null;
+  errorMessage: string | null;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  readAt: string | null;
+  createdAt: string;
 }
 
 export type QueueJobStatus = "queued" | "processing" | "completed" | "failed";
 
 export interface QueueJob {
   id: string;
-  campaignName: string;
+  name: string;
+  campaignId?: string | null;
   batchSize: number;
-  status: QueueJobStatus;
   attempts: number;
-  lastRunAt: string;
-  error?: string;
+  maxAttempts: number;
+  status: QueueJobStatus;
+  sentCount: number;
+  failedCount: number;
+  errorMessage?: string | null;
+  lastRunAt: string | null;
+  createdAt: string;
 }
 
 export interface ChatMessage {
@@ -153,6 +175,17 @@ export interface ChatMessage {
   from: "customer" | "agent";
   text: string;
   time: string;
+  /** Only set for agent (outbound) messages we actually sent via the real
+   * API — used to poll /api/whatsapp/message-status for tick updates. */
+  messageRecordId?: string;
+  /** Real send/delivery status — undefined until we know it, then
+   * "sent" | "delivered" | "read" | "failed". Only meaningful for `from: "agent"`. */
+  status?: "sent" | "delivered" | "read" | "failed";
+  media?: {
+    kind: "image" | "document";
+    url: string;
+    fileName?: string;
+  };
 }
 
 export interface Conversation {

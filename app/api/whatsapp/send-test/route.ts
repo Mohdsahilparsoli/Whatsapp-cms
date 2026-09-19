@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireClient } from "@/lib/apiGuards";
+import { prisma } from "@/lib/db";
 
 /**
  * ⚠️ Demo/testing only. This calls Meta's Graph API with ONE shared test
@@ -7,6 +8,11 @@ import { requireClient } from "@/lib/apiGuards";
  * WhatsApp integration (that's a later phase: each client stores/connects
  * their own WhatsApp Business Account). This exists to produce the
  * "message sent + received on WhatsApp" App Review demo video.
+ *
+ * Also records a real MessageRecord for every attempt (success or failure)
+ * so the Inbox can show real WhatsApp-style ticks (sent/delivered/read) —
+ * delivered/read only ever update if the delivery webhook is configured,
+ * same as everywhere else in this app (see app/api/webhooks/meta/route.ts).
  *
  * Required in .env (never commit real values):
  *   META_TEST_PHONE_NUMBER_ID=...
@@ -29,7 +35,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { to?: string; message?: string };
+  let body: { to?: string; message?: string; name?: string };
   try {
     body = await request.json();
   } catch {
@@ -69,15 +75,40 @@ export async function POST(request: Request) {
       // number first, or it's been >24h). A template message works any
       // time; free text only works inside that window.
       const metaMessage = data?.error?.message ?? "Meta rejected the message.";
+      const record = await prisma.messageRecord.create({
+        data: {
+          clientId: auth.clientId,
+          recipientName: body.name ?? null,
+          recipientPhone: to,
+          preview: message,
+          status: "failed",
+          errorMessage: metaMessage,
+          failedAt: new Date(),
+        },
+      });
       return NextResponse.json(
         {
           error: `${metaMessage} (Tip: the recipient must have messaged your test number in the last 24 hours for a plain text reply to work — otherwise send a template message instead.)`,
+          messageRecordId: record.id,
         },
         { status: res.status }
       );
     }
 
-    return NextResponse.json({ ok: true, whatsappMessageId: data.messages?.[0]?.id ?? null });
+    const whatsappMessageId: string | null = data.messages?.[0]?.id ?? null;
+    const record = await prisma.messageRecord.create({
+      data: {
+        clientId: auth.clientId,
+        recipientName: body.name ?? null,
+        recipientPhone: to,
+        preview: message,
+        whatsappMessageId,
+        status: "sent",
+        sentAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({ ok: true, whatsappMessageId, messageRecordId: record.id });
   } catch {
     return NextResponse.json({ error: "Could not reach the WhatsApp API. Please try again." }, { status: 502 });
   }

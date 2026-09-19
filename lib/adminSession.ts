@@ -12,6 +12,9 @@ export interface AdminPublic {
   userId: string;
   name: string;
   email: string;
+  phone: string | null;
+  notificationPrefs: unknown;
+  cmsPrefs: unknown;
 }
 
 export function toPublicAdmin(admin: {
@@ -19,8 +22,19 @@ export function toPublicAdmin(admin: {
   userId: string;
   name: string;
   email: string;
+  phone: string | null;
+  notificationPrefs?: unknown;
+  cmsPrefs?: unknown;
 }): AdminPublic {
-  return { id: admin.id, userId: admin.userId, name: admin.name, email: admin.email };
+  return {
+    id: admin.id,
+    userId: admin.userId,
+    name: admin.name,
+    email: admin.email,
+    phone: admin.phone,
+    notificationPrefs: admin.notificationPrefs ?? null,
+    cmsPrefs: admin.cmsPrefs ?? null,
+  };
 }
 
 /** Creates an AdminSession row and sets the httpOnly cookie. Kept as a

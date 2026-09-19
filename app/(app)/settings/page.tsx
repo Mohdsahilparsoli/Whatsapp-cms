@@ -6,19 +6,34 @@ import Card, { CardHeader } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Tabs from "@/components/ui/Tabs";
 import FormField, { SelectField } from "@/components/ui/FormField";
-import DemoNotice from "@/components/ui/DemoNotice";
 import InlineAlert from "@/components/ui/InlineAlert";
 import { roleLabel, useAuth } from "@/lib/auth";
+import type { CmsPrefs, NotificationPrefs } from "@/types";
+
+const DEFAULT_NOTIFICATIONS: NotificationPrefs = {
+  campaignComplete: true,
+  deliveryFailures: true,
+  newInboxMessage: false,
+  weeklySummary: true,
+};
+
+const DEFAULT_PREFERENCES: CmsPrefs = {
+  timezone: "Asia/Kolkata",
+  dateFormat: "DD MMM YYYY",
+  language: "English",
+  defaultList: "All opted-in contacts",
+};
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [tab, setTab] = useState("profile");
   const [toast, setToast] = useState<string | null>(null);
 
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
-  const [phone, setPhone] = useState("+91 90000 00000");
+  const [phone, setPhone] = useState(user?.phone ?? "");
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -26,27 +41,38 @@ export default function SettingsPage() {
   const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>({});
   const [changingPassword, setChangingPassword] = useState(false);
 
-  const [notifications, setNotifications] = useState({
-    campaignComplete: true,
-    deliveryFailures: true,
-    newInboxMessage: false,
-    weeklySummary: true,
-  });
+  const [notifications, setNotifications] = useState<NotificationPrefs>(
+    user?.notifications ?? DEFAULT_NOTIFICATIONS
+  );
+  const [savingNotifications, setSavingNotifications] = useState(false);
 
-  const [preferences, setPreferences] = useState({
-    timezone: "Asia/Kolkata",
-    dateFormat: "DD MMM YYYY",
-    language: "English",
-    defaultList: "All opted-in contacts",
-  });
+  const [preferences, setPreferences] = useState<CmsPrefs>(user?.preferences ?? DEFAULT_PREFERENCES);
+  const [savingPreferences, setSavingPreferences] = useState(false);
 
-  function saveProfile() {
+  async function saveProfile() {
     const errors: Record<string, string> = {};
     if (!name.trim()) errors.name = "Name is required.";
     if (!/^\S+@\S+\.\S+$/.test(email)) errors.email = "Enter a valid email address.";
     setProfileErrors(errors);
     if (Object.keys(errors).length) return;
-    setToast("Profile saved for this session.");
+
+    setSavingProfile(true);
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), phone: phone.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setProfileErrors(data.errors ?? { name: data.error ?? "Could not save profile." });
+        return;
+      }
+      updateUser(data.user);
+      setToast("Profile saved.");
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   async function savePassword() {
@@ -78,6 +104,46 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveNotifications() {
+    setSavingNotifications(true);
+    try {
+      const res = await fetch("/api/settings/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(notifications),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast(data.error ?? "Could not save notification preferences.");
+        return;
+      }
+      if (user) updateUser({ ...user, notifications: data.notifications });
+      setToast("Notification preferences saved.");
+    } finally {
+      setSavingNotifications(false);
+    }
+  }
+
+  async function savePreferences() {
+    setSavingPreferences(true);
+    try {
+      const res = await fetch("/api/settings/preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preferences),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast(data.error ?? "Could not save CMS preferences.");
+        return;
+      }
+      if (user) updateUser({ ...user, preferences: data.preferences });
+      setToast("CMS preferences saved.");
+    } finally {
+      setSavingPreferences(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -85,10 +151,10 @@ export default function SettingsPage() {
         description={`Signed in as ${user?.name ?? ""} · ${user ? roleLabel(user.role) : ""}`}
       />
 
-      <DemoNotice>
-        Profile, notifications, and preferences are still kept in local React state only. The
-        Password tab is real for both roles — it updates your login in PostgreSQL.
-      </DemoNotice>
+      <InlineAlert tone="info" className="mb-5">
+        Every tab here is real — Profile, Password, Notifications, and Preferences all save to
+        your row in PostgreSQL and persist across sessions and devices.
+      </InlineAlert>
 
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
@@ -123,8 +189,8 @@ export default function SettingsPage() {
             />
             <FormField label="Phone" value={phone} onChange={setPhone} />
             <FormField label="User ID" value={user?.userId ?? ""} onChange={() => {}} disabled />
-            <Button variant="primary" onClick={saveProfile}>
-              Save profile
+            <Button variant="primary" onClick={saveProfile} disabled={savingProfile}>
+              {savingProfile ? "Saving…" : "Save profile"}
             </Button>
           </div>
         )}
@@ -194,9 +260,10 @@ export default function SettingsPage() {
             <Button
               variant="primary"
               className="mt-5"
-              onClick={() => setToast("Notification preferences saved for this session.")}
+              onClick={saveNotifications}
+              disabled={savingNotifications}
             >
-              Save preferences
+              {savingNotifications ? "Saving…" : "Save preferences"}
             </Button>
           </div>
         )}
@@ -242,11 +309,8 @@ export default function SettingsPage() {
                 { label: "Festive campaign 2026", value: "Festive campaign 2026" },
               ]}
             />
-            <Button
-              variant="primary"
-              onClick={() => setToast("CMS preferences saved for this session.")}
-            >
-              Save preferences
+            <Button variant="primary" onClick={savePreferences} disabled={savingPreferences}>
+              {savingPreferences ? "Saving…" : "Save preferences"}
             </Button>
           </div>
         )}

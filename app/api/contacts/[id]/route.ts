@@ -34,6 +34,9 @@ interface UpdateContactBody {
   email?: string;
   tags?: string[];
   consent?: Consent;
+  /** Optional — only used when `consent` is actually changing (e.g. "Manual
+   * — Consent page"). If omitted, the existing source is kept as-is. */
+  consentSource?: string;
 }
 
 export async function PUT(request: Request, { params }: Params) {
@@ -89,6 +92,15 @@ export async function PUT(request: Request, { params }: Params) {
       email: email || null,
       tags,
       consent,
+      // Real audit trail: only touch these when consent actually changed,
+      // so editing unrelated fields (name, tags, ...) never silently resets
+      // when/why someone was opted in or out.
+      ...(consent !== existing.consent
+        ? {
+            consentDate: new Date(),
+            consentSource: body.consentSource?.trim() || existing.consentSource,
+          }
+        : {}),
     },
   });
 
