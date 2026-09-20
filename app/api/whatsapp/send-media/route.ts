@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
+import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 
 /**
- * ⚠️ Same demo/testing scope as send-test/route.ts (shared test number).
+ * Sends via the signed-in client's own connected WhatsApp account if they
+ * have one, else the shared test number — see lib/whatsappCredentials.ts
+ * and send-test/route.ts for the full explanation.
+ *
  * Additionally: Meta's servers fetch the media from the `link` URL you give
  * them, so this only works if this app is reachable on a **public** URL —
  * on localhost, the request to Meta will succeed in being sent but Meta
@@ -14,17 +18,17 @@ export async function POST(request: Request) {
   const auth = await requireClient();
   if (auth instanceof NextResponse) return auth;
 
-  const phoneNumberId = process.env.META_TEST_PHONE_NUMBER_ID;
-  const accessToken = process.env.META_TEST_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
+  const credentials = await getWhatsAppCredentials(auth.clientId);
+  if (!credentials) {
     return NextResponse.json(
       {
         error:
-          "WhatsApp test credentials are not configured. Add META_TEST_PHONE_NUMBER_ID and META_TEST_ACCESS_TOKEN to .env.",
+          "No WhatsApp number available. Connect one in WhatsApp Account Setup, or add META_TEST_PHONE_NUMBER_ID and META_TEST_ACCESS_TOKEN to .env.",
       },
       { status: 500 }
     );
   }
+  const { phoneNumberId, accessToken } = credentials;
 
   let body: {
     to?: string;

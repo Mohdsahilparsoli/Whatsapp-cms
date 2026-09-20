@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { getQueueSettings } from "@/lib/queueSettings";
+import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 
 interface BatchContact {
   id: string;
@@ -96,19 +97,20 @@ async function recordMessage(
 }
 
 /** Sends a batch of contacts, spacing sends out to respect messagesPerMinute,
- * and records a real MessageRecord for each one. */
+ * and records a real MessageRecord for each one. Uses the client's own
+ * connected WhatsApp account if they have one, else falls back to the
+ * shared test number (see lib/whatsappCredentials.ts). */
 async function sendBatch(
   contacts: BatchContact[],
   messageText: string,
   messagesPerMinute: number,
   ctx: SendContext
 ) {
-  const phoneNumberId = process.env.META_TEST_PHONE_NUMBER_ID;
-  const accessToken = process.env.META_TEST_ACCESS_TOKEN;
+  const credentials = await getWhatsAppCredentials(ctx.clientId);
 
-  if (!phoneNumberId || !accessToken) {
+  if (!credentials) {
     const error =
-      "WhatsApp test credentials are not configured (META_TEST_PHONE_NUMBER_ID / META_TEST_ACCESS_TOKEN in .env).";
+      "No WhatsApp number available — connect one in WhatsApp Account Setup, or configure META_TEST_PHONE_NUMBER_ID / META_TEST_ACCESS_TOKEN in .env.";
     for (const contact of contacts) {
       await recordMessage(ctx, contact, { ok: false, error });
     }
@@ -121,7 +123,7 @@ async function sendBatch(
   let lastError: string | undefined;
 
   for (const contact of contacts) {
-    const result = await sendOne(contact.phone, messageText, phoneNumberId, accessToken);
+    const result = await sendOne(contact.phone, messageText, credentials.phoneNumberId, credentials.accessToken);
     await recordMessage(ctx, contact, result);
     if (result.ok) sent += 1;
     else {

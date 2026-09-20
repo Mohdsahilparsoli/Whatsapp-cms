@@ -311,10 +311,15 @@ the page is also real and persisted per client (`checklistDone`), though it
 tracks the user's own manual progress, not anything Meta can confirm from
 our side.
 
-**Not done in this pass**: wiring Campaigns/Bulk Sender/Inbox/Queue to use
-a connected client's own credentials instead of the shared `META_TEST_*`
-ones — they all still use the shared test number regardless of what's
-connected here. That's the natural next step once this is tested end-to-end.
+**Now wired in**: `lib/whatsappCredentials.ts`'s `getWhatsAppCredentials(clientId)` is the
+single place every real send resolves which number to use from — a client's own connected
+account if `WhatsAppAccount.connected` is true, else the shared `META_TEST_*` fallback. Every
+sending code path goes through it: `app/api/whatsapp/send-test` and `send-media` (Inbox) call
+it directly; Campaigns and Bulk Sender both go through `lib/queueProcessor.ts`'s `sendBatch()`,
+which now calls it too — so connecting an account in WhatsApp Account Setup takes effect
+everywhere at once, with no per-feature changes needed. If the stored token can't be decrypted
+(e.g. `CREDENTIALS_ENCRYPTION_KEY` changed since they connected), sends quietly fall back to the
+shared number rather than hard-failing.
 
 ## Client Admin Dashboard + Notifications bell (real)
 
