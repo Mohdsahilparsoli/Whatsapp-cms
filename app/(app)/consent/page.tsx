@@ -9,7 +9,6 @@ import SearchInput from "@/components/ui/SearchInput";
 import Tabs from "@/components/ui/Tabs";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Pagination from "@/components/ui/Pagination";
-import InlineAlert from "@/components/ui/InlineAlert";
 import StatCard from "@/components/ui/StatCard";
 import { formatDate } from "@/lib/utils";
 import type { Contact, ConsentStatus } from "@/types";
@@ -136,12 +135,6 @@ export default function ConsentPage() {
         title="Consent & Opt-out"
         description="Who agreed to receive messages, where that consent came from, and who has opted out."
       />
-
-      <InlineAlert tone="info" className="mb-5">
-        This is your real Contacts data — opted-out contacts are automatically excluded from
-        Campaigns and Bulk Sender recipient counts, since both only ever target contacts whose
-        real consent is &quot;opted in&quot;.
-      </InlineAlert>
 
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">

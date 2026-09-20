@@ -6,7 +6,6 @@ import Card, { CardHeader } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Tabs from "@/components/ui/Tabs";
 import FormField, { SelectField } from "@/components/ui/FormField";
-import InlineAlert from "@/components/ui/InlineAlert";
 import { roleLabel, useAuth } from "@/lib/auth";
 import type { CmsPrefs, NotificationPrefs } from "@/types";
 
@@ -151,11 +150,6 @@ export default function SettingsPage() {
         description={`Signed in as ${user?.name ?? ""} · ${user ? roleLabel(user.role) : ""}`}
       />
 
-      <InlineAlert tone="info" className="mb-5">
-        Every tab here is real — Profile, Password, Notifications, and Preferences all save to
-        your row in PostgreSQL and persist across sessions and devices.
-      </InlineAlert>
-
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           {toast}
@@ -197,10 +191,6 @@ export default function SettingsPage() {
 
         {tab === "password" && (
           <div className="max-w-xl space-y-4 px-5 py-5">
-            <InlineAlert tone="info">
-              Enter your current password to set a new one. This updates your real login in the
-              database — you&apos;ll use the new password next time you sign in.
-            </InlineAlert>
             <FormField
               label="Current password"
               type="password"

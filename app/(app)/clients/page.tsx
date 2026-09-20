@@ -21,7 +21,6 @@ import ClientForm, {
   validateClient,
   type ClientFormValues,
 } from "@/components/forms/ClientForm";
-import InlineAlert from "@/components/ui/InlineAlert";
 import { TRIAL_DAYS } from "@/data/plans";
 import { formatDate, formatNumber } from "@/lib/utils";
 import type { Client } from "@/types";
@@ -258,12 +257,6 @@ export default function ClientsPage() {
         }
       />
 
-      <InlineAlert tone="info" className="mb-4">
-        Client accounts are stored in PostgreSQL. Passwords are hashed (bcrypt) before they are
-        saved — the plain-text password is only ever shown once, right after you create the
-        account or reset it.
-      </InlineAlert>
-
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           {toast}
@@ -345,13 +338,6 @@ export default function ClientsPage() {
           </>
         }
       >
-        {!editing && (
-          <InlineAlert tone="info" className="mb-4">
-            New client accounts start on a {TRIAL_DAYS}-day free CMS trial. The
-            dates below are pre-filled with that trial window and can be changed. The client can
-            sign in immediately with the User ID and password you set here.
-          </InlineAlert>
-        )}
         <ClientForm
           values={values}
           errors={errors}

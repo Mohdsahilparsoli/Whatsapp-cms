@@ -211,12 +211,6 @@ export default function QueuePage() {
         }
       />
 
-      <InlineAlert tone="warning" className="mb-5">
-        Sending speed is genuinely capped by the settings below — every real send from Campaigns
-        or Bulk Sender goes through this queue. It&apos;s still limited by Meta&apos;s own
-        per-account rules regardless of what you set here.
-      </InlineAlert>
-
       {settings?.paused && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
           Queue is paused. New Campaign/Bulk Sender sends won&apos;t go out until you resume —

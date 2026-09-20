@@ -15,7 +15,6 @@ import Drawer from "@/components/ui/Drawer";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Pagination from "@/components/ui/Pagination";
 import LoadingState from "@/components/ui/LoadingState";
-import InlineAlert from "@/components/ui/InlineAlert";
 import ContactForm, {
   contactToForm,
   emptyContact,
@@ -272,13 +271,6 @@ export default function ContactsPage() {
           </>
         }
       />
-
-      {/* Hidden for the App Review demo video — restore after review. */}
-      {false && (
-        <InlineAlert tone="info" className="mb-4">
-          Contacts are stored in PostgreSQL, scoped to your account — only phone number is required.
-        </InlineAlert>
-      )}
 
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">

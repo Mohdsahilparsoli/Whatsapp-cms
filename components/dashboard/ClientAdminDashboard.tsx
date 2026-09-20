@@ -15,7 +15,6 @@ import StatCard from "@/components/ui/StatCard";
 import Card, { CardHeader } from "@/components/ui/Card";
 import DataTable, { type Column } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
-import InlineAlert from "@/components/ui/InlineAlert";
 import LoadingState from "@/components/ui/LoadingState";
 import Button from "@/components/ui/Button";
 import { getPlan } from "@/data/plans";
@@ -97,12 +96,6 @@ export default function ClientAdminDashboard() {
           </>
         }
       />
-
-      <InlineAlert tone="warning" className="mb-5">
-        Sent/Delivered/Read/Failed below are real, from actual WhatsApp sends via Meta&apos;s
-        shared test number — Delivered/Read only count what Meta&apos;s delivery webhook has
-        confirmed (see Message Status).
-      </InlineAlert>
 
       {loading ? (
         <LoadingState rows={3} label="Loading dashboard" />

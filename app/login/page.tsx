@@ -185,20 +185,6 @@ export default function LoginPage() {
               {submitting ? "Signing in…" : "Sign in"}
             </button>
           </form>
-
-          <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-700">Getting your login</p>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              <strong>Super Admin:</strong> there is exactly one account, set up from the terminal
-              (<code className="rounded bg-slate-200 px-1 py-0.5">npm run create-admin</code>) — ask
-              whoever set up this server for the User ID and password.
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              <strong>Client Admin:</strong> Super Admin creates your account from the Clients page
-              and gives you a User ID and temporary password. Both roles are checked against the
-              database — nothing here is a hardcoded demo login anymore.
-            </p>
-          </div>
         </div>
       </div>
     </div>

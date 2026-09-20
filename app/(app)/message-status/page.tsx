@@ -11,7 +11,6 @@ import DateRangeFilter, { type DateRange } from "@/components/ui/DateRangeFilter
 import StatusBadge from "@/components/ui/StatusBadge";
 import Modal from "@/components/ui/Modal";
 import Pagination from "@/components/ui/Pagination";
-import InlineAlert from "@/components/ui/InlineAlert";
 import { formatDateTime } from "@/lib/utils";
 import type { MessageRecord } from "@/types";
 
@@ -95,13 +94,6 @@ export default function MessageStatusPage() {
         title="Message Status"
         description="Real delivery outcome for every message this CMS has sent."
       />
-
-      <InlineAlert tone="warning" className="mb-5">
-        Every row here is a real send (via Campaigns, Bulk Sender, or the Inbox) — statuses start
-        at &quot;Sent&quot; or &quot;Failed&quot;. &quot;Delivered&quot;/&quot;Read&quot; only
-        appear if Meta&apos;s delivery-status webhook is configured and reachable (a public URL —
-        see README-BACKEND.md); without it, that&apos;s expected, not a bug.
-      </InlineAlert>
 
       <Card>
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-3">

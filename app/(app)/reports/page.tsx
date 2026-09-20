@@ -11,7 +11,6 @@ import DataTable, { type Column } from "@/components/ui/DataTable";
 import FilterDropdown from "@/components/ui/FilterDropdown";
 import DateRangeFilter, { type DateRange } from "@/components/ui/DateRangeFilter";
 import StatusBadge from "@/components/ui/StatusBadge";
-import InlineAlert from "@/components/ui/InlineAlert";
 import LoadingState from "@/components/ui/LoadingState";
 import { useAuth } from "@/lib/auth";
 import { downloadCsv, formatNumber, percent } from "@/lib/utils";
@@ -150,13 +149,6 @@ export default function ReportsPage() {
           </Button>
         }
       />
-
-      <InlineAlert tone="warning" className="mb-5">
-        Every figure here comes from real message records — &quot;Delivered&quot;/&quot;Read&quot;
-        only count messages Meta&apos;s webhook has actually confirmed (see Message Status for
-        setup). Until that&apos;s configured, Sent and Failed are accurate but Delivered/Read will
-        read low or zero.
-      </InlineAlert>
 
       <Card className="mb-5">
         <div className="flex flex-wrap items-center gap-3 px-5 py-3">

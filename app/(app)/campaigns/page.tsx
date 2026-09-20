@@ -345,13 +345,6 @@ export default function CampaignsPage() {
         }
       />
 
-      <InlineAlert tone="warning" className="mb-5">
-        Campaigns send <strong>real</strong> WhatsApp messages via Meta&apos;s shared test number
-        — only opted-in contacts who&apos;ve messaged that number in the last 24 hours will
-        actually receive them. Scheduled campaigns run automatically while this server stays
-        running (checked every 30s) — they won&apos;t fire if the server is stopped.
-      </InlineAlert>
-
       {toast && (
         <InlineAlert
           tone="success"

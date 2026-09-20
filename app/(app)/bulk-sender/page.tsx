@@ -8,7 +8,6 @@ import Card, { CardHeader } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import FormField, { SelectField } from "@/components/ui/FormField";
 import Modal from "@/components/ui/Modal";
-import InlineAlert from "@/components/ui/InlineAlert";
 import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
 import TemplatePreview from "@/components/templates/TemplatePreview";
@@ -110,13 +109,6 @@ export default function BulkSenderPage() {
   return (
     <div>
       <PageHeader title={meta.title} description="Send a real WhatsApp message to a group of your contacts." />
-
-      <InlineAlert tone="warning" className="mb-5">
-        This sends <strong>real</strong> WhatsApp messages via Meta&apos;s shared test number —
-        only opted-in contacts who have messaged that test number in the last 24 hours will
-        actually receive it (Meta&apos;s messaging window rule). Only saved Custom Templates can
-        be sent; Meta-Approved templates are still mock data.
-      </InlineAlert>
 
       {result && (
         <Card className="mb-5">
@@ -328,10 +320,6 @@ export default function BulkSenderPage() {
               </p>
             )}
 
-            <InlineAlert tone="warning">
-              Sending {formatNumber(audience.length)} real WhatsApp messages. This may take a
-              little while — please don&apos;t close this window.
-            </InlineAlert>
           </div>
         )}
       </Modal>

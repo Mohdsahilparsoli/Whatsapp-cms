@@ -6,7 +6,6 @@ import PageHeader from "@/components/ui/PageHeader";
 import Card, { CardHeader } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import DataTable, { type Column } from "@/components/ui/DataTable";
-import DemoNotice from "@/components/ui/DemoNotice";
 import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
 import Modal from "@/components/ui/Modal";
@@ -277,14 +276,6 @@ export default function ContactImportPage() {
         title="Contact Import"
         description="Upload a CSV or Excel file, map its columns, and review before importing."
       />
-
-      {/* Hidden for the App Review demo video — restore after review. */}
-      {false && (
-        <DemoNotice>
-          Import only contacts who agreed to receive WhatsApp messages from you. This CMS does not
-          scrape numbers or collect contacts from third-party sources.
-        </DemoNotice>
-      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">

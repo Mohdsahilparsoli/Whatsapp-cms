@@ -7,7 +7,6 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import SearchInput from "@/components/ui/SearchInput";
 import StatusBadge from "@/components/ui/StatusBadge";
-import InlineAlert from "@/components/ui/InlineAlert";
 import EmptyState from "@/components/ui/EmptyState";
 import { formatDateTime } from "@/lib/utils";
 
@@ -184,15 +183,6 @@ export default function InboxPage() {
         title="WhatsApp Inbox"
         description="Real conversations — customer replies arrive via Meta's webhook, and replies send a real WhatsApp message."
       />
-
-      <InlineAlert tone="warning" className="mb-5">
-        Sending uses your connected WhatsApp account (or the shared test number if none is
-        connected) — see WhatsApp Account Setup. <strong>Receiving customer replies requires the
-        delivery webhook to be configured and reachable</strong> (a public URL — ngrok for local
-        dev; see README-BACKEND.md), and only works for messages sent to a number you&apos;ve
-        connected there. Without that, this Inbox will stay empty even if messages arrive on
-        WhatsApp itself.
-      </InlineAlert>
 
       <Card className="overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr]">

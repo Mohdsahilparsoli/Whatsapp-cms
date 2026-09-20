@@ -9,7 +9,6 @@ import Modal from "@/components/ui/Modal";
 import FormField from "@/components/ui/FormField";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
-import InlineAlert from "@/components/ui/InlineAlert";
 import LoadingState from "@/components/ui/LoadingState";
 import { formatDateTime } from "@/lib/utils";
 
@@ -276,14 +275,6 @@ export default function WhatsAppSetupPage() {
           ) : null
         }
       />
-
-      <InlineAlert tone="info" className="mb-5">
-        Two real ways to connect: <strong>Connect via Facebook</strong> (Embedded Signup — needs
-        Meta App Review approved first) or <strong>Enter manually</strong> (works today — paste
-        your WABA ID, Phone Number ID, and access token from Meta&apos;s API Setup page; we verify
-        them against Meta before saving). Credentials are encrypted at rest and never shown in
-        full again.
-      </InlineAlert>
 
       {connectError && (
         <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">

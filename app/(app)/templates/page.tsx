@@ -13,7 +13,6 @@ import Tabs from "@/components/ui/Tabs";
 import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import EmptyState from "@/components/ui/EmptyState";
-import DemoNotice from "@/components/ui/DemoNotice";
 import InlineAlert from "@/components/ui/InlineAlert";
 import TemplatePreview from "@/components/templates/TemplatePreview";
 import TemplateSourceBadge from "@/components/templates/TemplateSourceBadge";
@@ -50,7 +49,6 @@ export default function TemplatesPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const base: TemplateView[] =
@@ -78,9 +76,6 @@ export default function TemplatesPage() {
     window.setTimeout(() => {
       // Meta-Approved is still mock — this timeout just simulates its sync.
       setRefreshing(false);
-      setRefreshedAt(
-        new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
-      );
     }, 900);
   }
 
@@ -226,17 +221,6 @@ export default function TemplatesPage() {
           </>
         }
       />
-
-      {/* Hidden for the App Review demo video — restore after review. */}
-      {false && (
-        <DemoNotice>
-          Meta-approved templates are still mock data — in production they&apos;d sync from
-          Meta, and only approved templates can be used in a campaign (that integration is a
-          later phase). Custom templates below are real — stored in PostgreSQL, scoped to
-          your account.
-          {refreshedAt && <> Last refreshed at {refreshedAt}.</>}
-        </DemoNotice>
-      )}
 
       {toast && (
         <InlineAlert
@@ -390,13 +374,6 @@ export default function TemplatesPage() {
                 />
               </span>
             </div>
-
-            {preview.source === "custom" && (
-              <InlineAlert tone="info">
-                This is your own template. It has not been submitted to Meta and is
-                not Meta-approved.
-              </InlineAlert>
-            )}
           </div>
         )}
       </Modal>
