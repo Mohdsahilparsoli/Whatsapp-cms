@@ -21,13 +21,19 @@ export async function PUT(request: Request) {
 
   const adminId = await getSessionAdminId();
   if (adminId) {
-    await prisma.adminUser.update({ where: { id: adminId }, data: { notificationPrefs: prefs } });
+    await prisma.adminUser.update({
+      where: { id: adminId },
+      data: { notificationPrefs: JSON.parse(JSON.stringify(prefs)) },
+    });
     return NextResponse.json({ notifications: prefs });
   }
 
   const clientId = await getSessionClientId();
   if (clientId) {
-    await prisma.client.update({ where: { id: clientId }, data: { notificationPrefs: prefs } });
+    await prisma.client.update({
+      where: { id: clientId },
+      data: { notificationPrefs: JSON.parse(JSON.stringify(prefs)) },
+    });
     return NextResponse.json({ notifications: prefs });
   }
 

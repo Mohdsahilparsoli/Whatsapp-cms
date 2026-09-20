@@ -237,21 +237,24 @@ export default function ReportsPage() {
                         </li>
                       ))
                   : [
-                      { label: "Delivered", value: totals.delivered, color: "bg-emerald-500" },
-                      { label: "Read", value: totals.read, color: "bg-sky-500" },
-                      { label: "Failed", value: totals.failed, color: "bg-red-500" },
+                      { label: "Delivered", value: totals.delivered, denom: totals.sent, color: "bg-emerald-500" },
+                      { label: "Read", value: totals.read, denom: totals.delivered, color: "bg-sky-500" },
+                      // Failed is mutually exclusive with Sent (not a subset of
+                      // it), so its rate is out of all recipients — otherwise
+                      // this could read over 100%.
+                      { label: "Failed", value: totals.failed, denom: totals.recipients, color: "bg-red-500" },
                     ].map((item) => (
                       <li key={item.label} className="px-5 py-3">
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-slate-600">{item.label}</span>
                           <span className="font-medium text-slate-900">
-                            {formatNumber(item.value)} · {percent(item.value, totals.sent)}%
+                            {formatNumber(item.value)} · {percent(item.value, item.denom)}%
                           </span>
                         </div>
                         <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100">
                           <div
                             className={`h-1.5 rounded-full ${item.color}`}
-                            style={{ width: `${percent(item.value, totals.sent)}%` }}
+                            style={{ width: `${percent(item.value, item.denom)}%` }}
                           />
                         </div>
                       </li>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Check, CheckCheck, FileText, Info, Loader2, Paperclip, Send } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
@@ -9,20 +9,43 @@ import SearchInput from "@/components/ui/SearchInput";
 import StatusBadge from "@/components/ui/StatusBadge";
 import InlineAlert from "@/components/ui/InlineAlert";
 import EmptyState from "@/components/ui/EmptyState";
-import { conversations as seed } from "@/data/campaigns";
-import type { ChatMessage, Conversation } from "@/types";
+import { formatDateTime } from "@/lib/utils";
 
-function Ticks({ status }: { status?: ChatMessage["status"] }) {
+interface ConversationSummary {
+  id: string;
+  contactPhone: string;
+  contactName: string | null;
+  unreadCount: number;
+  lastMessageAt: string;
+  lastMessagePreview: string;
+  consent: "opted_in" | "opted_out" | "pending" | null;
+  tags: string[];
+}
+
+interface RealMessage {
+  id: string;
+  direction: "inbound" | "outbound";
+  type: "text" | "image" | "document";
+  text: string;
+  mediaUrl: string | null;
+  mediaFileName: string | null;
+  whatsappMessageId: string | null;
+  status: string;
+  createdAt: string;
+}
+
+function Ticks({ status }: { status: string }) {
   if (status === "read") return <CheckCheck className="h-3.5 w-3.5 text-sky-500" aria-label="Read" />;
   if (status === "delivered") return <CheckCheck className="h-3.5 w-3.5 text-slate-400" aria-label="Delivered" />;
-  if (status === "sent") return <Check className="h-3.5 w-3.5 text-slate-400" aria-label="Sent" />;
   if (status === "failed") return <span className="text-[11px] text-red-500">Failed</span>;
-  return null; // still sending — no tick yet
+  return <Check className="h-3.5 w-3.5 text-slate-400" aria-label="Sent" />;
 }
 
 export default function InboxPage() {
-  const [threads, setThreads] = useState<Conversation[]>(seed);
-  const [activeId, setActiveId] = useState<string>(seed[0].id);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeMessages, setActiveMessages] = useState<RealMessage[]>([]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [showDetails, setShowDetails] = useState(true);
@@ -31,67 +54,61 @@ export default function InboxPage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return threads.filter(
-      (thread) =>
-        !q ||
-        thread.contactName.toLowerCase().includes(q) ||
-        thread.phone.includes(q)
-    );
-  }, [threads, query]);
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch("/api/inbox/conversations");
+      const data = await res.json();
+      setConversations(data.conversations ?? []);
+    } catch {
+      // keep whatever was already shown
+    }
+  }, []);
 
-  const active = threads.find((thread) => thread.id === activeId) ?? null;
+  const loadActiveMessages = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/inbox/conversations/${id}`);
+      const data = await res.json();
+      setActiveMessages(data.messages ?? []);
+    } catch {
+      // keep whatever was already shown
+    }
+  }, []);
 
-  // Real WhatsApp-style ticks: poll the status of our own sent messages
-  // (the ones we have a messageRecordId for) until each is read or failed.
   useEffect(() => {
-    const pending = threads
-      .flatMap((t) => t.messages)
-      .filter((m) => m.messageRecordId && m.status !== "read" && m.status !== "failed");
-    if (pending.length === 0) return;
+    (async () => {
+      setLoading(true);
+      await loadConversations();
+      setLoading(false);
+    })();
 
-    const interval = setInterval(async () => {
-      const ids = pending.map((m) => m.messageRecordId!).join(",");
-      try {
-        const res = await fetch(`/api/whatsapp/message-status?ids=${ids}`);
-        const data = await res.json();
-        const statuses: Record<string, ChatMessage["status"]> = data.statuses ?? {};
-        if (Object.keys(statuses).length === 0) return;
-        setThreads((prev) =>
-          prev.map((t) => ({
-            ...t,
-            messages: t.messages.map((m) =>
-              m.messageRecordId && statuses[m.messageRecordId]
-                ? { ...m, status: statuses[m.messageRecordId] }
-                : m
-            ),
-          }))
-        );
-      } catch {
-        // transient — next tick will retry
-      }
-    }, 4000);
-
+    // Real incoming messages arrive via webhook at any time — poll so new
+    // conversations/replies show up without a manual refresh.
+    const interval = setInterval(loadConversations, 8000);
     return () => clearInterval(interval);
-  }, [threads]);
+  }, [loadConversations]);
 
-  function openThread(id: string) {
+  useEffect(() => {
+    if (!activeId) return;
+    // False positive — see the identical note on this pattern in
+    // app/(app)/clients/page.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadActiveMessages(activeId);
+    const interval = setInterval(() => loadActiveMessages(activeId), 4000);
+    return () => clearInterval(interval);
+  }, [activeId, loadActiveMessages]);
+
+  const filtered = conversations.filter((c) => {
+    const q = query.trim().toLowerCase();
+    return !q || (c.contactName ?? "").toLowerCase().includes(q) || c.contactPhone.includes(q);
+  });
+
+  const active = conversations.find((c) => c.id === activeId) ?? null;
+
+  async function openConversation(id: string) {
     setActiveId(id);
     setSendError(null);
-    setThreads((prev) =>
-      prev.map((thread) => (thread.id === id ? { ...thread, unread: 0 } : thread))
-    );
-  }
-
-  function appendMessage(message: ChatMessage) {
-    setThreads((prev) =>
-      prev.map((thread) =>
-        thread.id === activeId
-          ? { ...thread, lastMessageAt: message.time, messages: [...thread.messages, message] }
-          : thread
-      )
-    );
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)));
+    fetch(`/api/inbox/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }
 
   async function sendReply(e: FormEvent) {
@@ -105,7 +122,7 @@ export default function InboxPage() {
       const res = await fetch("/api/whatsapp/send-test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: active.phone, message: text, name: active.contactName }),
+        body: JSON.stringify({ to: active.contactPhone, message: text, name: active.contactName }),
       });
       const data = await res.json();
 
@@ -114,16 +131,8 @@ export default function InboxPage() {
         return;
       }
 
-      const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-      appendMessage({
-        id: `m${Date.now()}`,
-        from: "agent",
-        text,
-        time,
-        messageRecordId: data.messageRecordId,
-        status: "sent",
-      });
       setDraft("");
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
     } finally {
       setSending(false);
     }
@@ -150,7 +159,7 @@ export default function InboxPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: active.phone,
+          to: active.contactPhone,
           name: active.contactName,
           mediaUrl: uploadData.url,
           mediaKind: uploadData.kind,
@@ -163,16 +172,7 @@ export default function InboxPage() {
         return;
       }
 
-      const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-      appendMessage({
-        id: `m${Date.now()}`,
-        from: "agent",
-        text: "",
-        time,
-        messageRecordId: sendData.messageRecordId,
-        status: "sent",
-        media: { kind: uploadData.kind, url: uploadData.url, fileName: uploadData.fileName },
-      });
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
     } finally {
       setUploading(false);
     }
@@ -182,23 +182,17 @@ export default function InboxPage() {
     <div>
       <PageHeader
         title="WhatsApp Inbox"
-        description="Conversations started by your customers — replies send a real WhatsApp message."
+        description="Real conversations — customer replies arrive via Meta's webhook, and replies send a real WhatsApp message."
       />
 
-      {/* Hidden for the App Review demo video — restore after review is
-          submitted. Was: InlineAlert explaining this is a shared test
-          number / demo-only sending. */}
-      {false && (
-        <InlineAlert tone="warning" className="mb-5">
-          Replies here send a <strong>real</strong> WhatsApp message via Meta&apos;s test number —
-          this is for testing/demo purposes only (one shared test number, not yet a real per-client
-          WhatsApp connection). A reply only delivers as plain text if this contact has messaged the
-          test number in the last 24 hours. Ticks (✓ sent, ✓✓ delivered, blue ✓✓ read) only advance
-          past &quot;sent&quot; if Meta&apos;s delivery webhook is configured — see Message Status.
-          Sending photos/documents needs this app on a public URL (ngrok for local dev) so Meta can
-          fetch the file.
-        </InlineAlert>
-      )}
+      <InlineAlert tone="warning" className="mb-5">
+        Sending uses your connected WhatsApp account (or the shared test number if none is
+        connected) — see WhatsApp Account Setup. <strong>Receiving customer replies requires the
+        delivery webhook to be configured and reachable</strong> (a public URL — ngrok for local
+        dev; see README-BACKEND.md), and only works for messages sent to a number you&apos;ve
+        connected there. Without that, this Inbox will stay empty even if messages arrive on
+        WhatsApp itself.
+      </InlineAlert>
 
       <Card className="overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr]">
@@ -208,44 +202,43 @@ export default function InboxPage() {
               <SearchInput value={query} onChange={setQuery} placeholder="Search conversations" />
             </div>
             <ul className="max-h-[420px] overflow-y-auto lg:max-h-[560px]">
-              {filtered.length === 0 && (
+              {!loading && filtered.length === 0 && (
                 <li>
-                  <EmptyState title="No conversations found" description="Try a different name or number." />
+                  <EmptyState
+                    title="No conversations yet"
+                    description="Real customer replies will appear here once someone messages your connected WhatsApp number."
+                  />
                 </li>
               )}
               {filtered.map((thread) => (
                 <li key={thread.id}>
                   <button
                     type="button"
-                    onClick={() => openThread(thread.id)}
+                    onClick={() => openConversation(thread.id)}
                     aria-current={thread.id === activeId}
                     className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition-colors ${
                       thread.id === activeId ? "bg-indigo-50/70" : "hover:bg-slate-50"
                     }`}
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-medium text-slate-600">
-                      {thread.contactName[0]}
+                      {(thread.contactName || thread.contactPhone)[0]}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-medium text-slate-900">
-                          {thread.contactName}
+                          {thread.contactName || thread.contactPhone}
                         </span>
                         <span className="shrink-0 text-xs text-slate-400">
-                          {thread.lastMessageAt}
+                          {formatDateTime(thread.lastMessageAt)}
                         </span>
                       </span>
                       <span className="mt-0.5 flex items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
-                          {thread.messages[thread.messages.length - 1]?.media
-                            ? thread.messages[thread.messages.length - 1]?.media?.kind === "image"
-                              ? "📷 Photo"
-                              : "📄 Document"
-                            : thread.messages[thread.messages.length - 1]?.text}
+                          {thread.lastMessagePreview}
                         </span>
-                        {thread.unread > 0 && (
+                        {thread.unreadCount > 0 && (
                           <span className="shrink-0 rounded-full bg-indigo-600 px-1.5 text-[11px] text-white">
-                            {thread.unread}
+                            {thread.unreadCount}
                           </span>
                         )}
                       </span>
@@ -262,8 +255,10 @@ export default function InboxPage() {
               <>
                 <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">{active.contactName}</p>
-                    <p className="text-xs text-slate-400">{active.phone}</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {active.contactName || active.contactPhone}
+                    </p>
+                    <p className="text-xs text-slate-400">{active.contactPhone}</p>
                   </div>
                   <Button size="sm" onClick={() => setShowDetails((s) => !s)}>
                     <Info className="h-3.5 w-3.5" />
@@ -274,57 +269,72 @@ export default function InboxPage() {
                 {showDetails && (
                   <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-xs">
                     <span className="flex items-center gap-1.5 text-slate-500">
-                      Consent <StatusBadge status={active.consent} />
+                      Consent{" "}
+                      {active.consent ? (
+                        <StatusBadge status={active.consent} />
+                      ) : (
+                        <span className="text-slate-400">Unknown (not in Contacts)</span>
+                      )}
                     </span>
-                    <span className="text-slate-500">
-                      Tags:{" "}
-                      {active.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="ml-1 rounded bg-white px-1.5 py-0.5 text-slate-600 ring-1 ring-slate-200"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </span>
+                    {active.tags.length > 0 && (
+                      <span className="text-slate-500">
+                        Tags:{" "}
+                        {active.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="ml-1 rounded bg-white px-1.5 py-0.5 text-slate-600 ring-1 ring-slate-200"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </div>
                 )}
 
                 <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50/60 px-5 py-4">
-                  {active.messages.map((message) => (
+                  {activeMessages.map((message) => (
                     <div
                       key={message.id}
                       className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
-                        message.from === "agent"
+                        message.direction === "outbound"
                           ? "ml-auto rounded-tr-sm bg-emerald-100 text-slate-800"
                           : "rounded-tl-sm bg-white text-slate-800 ring-1 ring-slate-200"
                       }`}
                     >
-                      {message.media?.kind === "image" && (
+                      {message.type === "image" && message.mediaUrl && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={message.media.url}
-                          alt={message.media.fileName ?? "Photo"}
+                          src={message.mediaUrl}
+                          alt={message.mediaFileName ?? "Photo"}
                           className="mb-1.5 max-h-64 w-full rounded-lg object-cover"
                         />
                       )}
-                      {message.media?.kind === "document" && (
+                      {message.type === "image" && !message.mediaUrl && (
+                        <p className="mb-1 text-xs text-slate-400">📷 Photo received (not downloaded)</p>
+                      )}
+                      {message.type === "document" && message.mediaUrl && (
                         <a
-                          href={message.media.url}
+                          href={message.mediaUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="mb-1.5 flex items-center gap-2 rounded-lg bg-white/70 px-2.5 py-2 ring-1 ring-slate-200 hover:bg-white"
                         >
                           <FileText className="h-6 w-6 shrink-0 text-indigo-500" />
                           <span className="truncate text-xs font-medium text-slate-700">
-                            {message.media.fileName ?? "Document"}
+                            {message.mediaFileName ?? "Document"}
                           </span>
                         </a>
                       )}
+                      {message.type === "document" && !message.mediaUrl && (
+                        <p className="mb-1 text-xs text-slate-400">
+                          📄 {message.mediaFileName ?? "Document"} received (not downloaded)
+                        </p>
+                      )}
                       {message.text && <p className="leading-relaxed">{message.text}</p>}
                       <p className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
-                        {message.time}
-                        {message.from === "agent" && <Ticks status={message.status} />}
+                        {formatDateTime(message.createdAt)}
+                        {message.direction === "outbound" && <Ticks status={message.status} />}
                       </p>
                     </div>
                   ))}

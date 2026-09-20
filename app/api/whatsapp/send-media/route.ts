@@ -116,7 +116,26 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, whatsappMessageId, messageRecordId: record.id });
+    const conversation = await prisma.conversation.upsert({
+      where: { clientId_contactPhone: { clientId: auth.clientId, contactPhone: to } },
+      update: { contactName: body.name ?? undefined, lastMessageAt: new Date() },
+      create: { clientId: auth.clientId, contactPhone: to, contactName: body.name ?? null },
+    });
+    await prisma.chatMessage.create({
+      data: {
+        conversationId: conversation.id,
+        clientId: auth.clientId,
+        direction: "outbound",
+        type: mediaKind,
+        text: body.caption?.trim() ?? "",
+        mediaUrl,
+        mediaFileName: body.fileName,
+        whatsappMessageId,
+        status: "sent",
+      },
+    });
+
+    return NextResponse.json({ ok: true, whatsappMessageId, messageRecordId: record.id, conversationId: conversation.id });
   } catch {
     return NextResponse.json({ error: "Could not reach the WhatsApp API. Please try again." }, { status: 502 });
   }

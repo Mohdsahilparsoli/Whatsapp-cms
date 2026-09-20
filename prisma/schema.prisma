@@ -76,6 +76,8 @@ model Client {
   queueJobs QueueJob[]
   messageRecords MessageRecord[]
   whatsappAccount WhatsAppAccount?
+  contactLists ContactList[]
+  conversations Conversation[]
 
   @@map("clients")
 }
@@ -415,4 +417,85 @@ model WhatsAppAccount {
   updatedAt DateTime @updatedAt
 
   @@map("whatsapp_accounts")
+}
+
+/// A saved, named audience — real, but simple by design: a list is just a
+/// name attached to a tag. Membership is always live (contacts with that
+/// tag right now), not a frozen snapshot, so it never goes stale — the same
+/// tag Bulk Sender/Campaigns already filter by. Deleting a list only
+/// removes this saved reference; it never untags or deletes contacts.
+model ContactList {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  name   String
+  tag    String
+  source String @default("Manual") // "Manual" | "CSV import" | "Excel import"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, name])
+  @@index([clientId])
+  @@map("contact_lists")
+}
+
+/// Real conversation thread with one contact — the Inbox's actual data,
+/// replacing the seeded mock conversations. One per (clientId, contactPhone).
+model Conversation {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  contactPhone String
+  contactName  String?
+  unreadCount  Int      @default(0)
+  lastMessageAt DateTime @default(now())
+
+  messages ChatMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, contactPhone])
+  @@index([clientId])
+  @@map("conversations")
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+}
+
+enum ChatMessageType {
+  text
+  image
+  document
+}
+
+/// One real message in a Conversation — inbound (from the customer, via
+/// Meta's webhook) or outbound (sent from this CMS). See
+/// app/api/webhooks/meta/route.ts for how inbound messages arrive, and
+/// note the multi-tenant caveat documented there (routing by phoneNumberId).
+model ChatMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  clientId       String
+
+  direction MessageDirection
+  type      ChatMessageType  @default(text)
+  text      String           @default("")
+  mediaUrl      String?
+  mediaFileName String?
+
+  whatsappMessageId String? @unique
+  status            String  @default("sent") // sent | delivered | read | failed — outbound only
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([clientId])
+  @@map("chat_messages")
 }

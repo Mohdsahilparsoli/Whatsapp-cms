@@ -105,7 +105,26 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, whatsappMessageId, messageRecordId: record.id });
+    // Also log this into the real conversation thread (Inbox) — find or
+    // create by phone, same as inbound messages via the webhook.
+    const conversation = await prisma.conversation.upsert({
+      where: { clientId_contactPhone: { clientId: auth.clientId, contactPhone: to } },
+      update: { contactName: body.name ?? undefined, lastMessageAt: new Date() },
+      create: { clientId: auth.clientId, contactPhone: to, contactName: body.name ?? null },
+    });
+    await prisma.chatMessage.create({
+      data: {
+        conversationId: conversation.id,
+        clientId: auth.clientId,
+        direction: "outbound",
+        type: "text",
+        text: message,
+        whatsappMessageId,
+        status: "sent",
+      },
+    });
+
+    return NextResponse.json({ ok: true, whatsappMessageId, messageRecordId: record.id, conversationId: conversation.id });
   } catch {
     return NextResponse.json({ error: "Could not reach the WhatsApp API. Please try again." }, { status: 502 });
   }

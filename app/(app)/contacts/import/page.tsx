@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileSpreadsheet, ShieldAlert, UploadCloud } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, Plus, ShieldAlert, Trash2, UploadCloud } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card, { CardHeader } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -10,11 +10,19 @@ import DemoNotice from "@/components/ui/DemoNotice";
 import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
 import Modal from "@/components/ui/Modal";
-import InlineAlert from "@/components/ui/InlineAlert";
-import { contactLists } from "@/data/contacts";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import FormField, { SelectField } from "@/components/ui/FormField";
 import { formatDate, formatNumber } from "@/lib/utils";
 import { parseContactFile, guessColumnMapping, type ContactField } from "@/lib/fileParse";
-import type { ContactList } from "@/types";
+
+interface SavedList {
+  id: string;
+  name: string;
+  tag: string;
+  source: string;
+  updatedAt: string;
+  count: number;
+}
 
 const FIELD_LABELS: Record<ContactField, string> = {
   phone: "Phone",
@@ -58,7 +66,67 @@ export default function ContactImportPage() {
     imported: number;
   } | null>(null);
 
-  const [lists] = useState<ContactList[]>(contactLists);
+  const [lists, setLists] = useState<SavedList[]>([]);
+  const [listsLoading, setListsLoading] = useState(true);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [listModalOpen, setListModalOpen] = useState(false);
+  const [listForm, setListForm] = useState({ name: "", tag: "" });
+  const [listErrors, setListErrors] = useState<Record<string, string>>({});
+  const [savingList, setSavingList] = useState(false);
+  const [confirmDeleteList, setConfirmDeleteList] = useState<SavedList | null>(null);
+
+  function loadLists() {
+    setListsLoading(true);
+    fetch("/api/contact-lists")
+      .then((r) => r.json())
+      .then((data) => setLists(data.lists ?? []))
+      .catch(() => setLists([]))
+      .finally(() => setListsLoading(false));
+  }
+
+  useEffect(() => {
+    // False positive — see the identical note on this pattern in
+    // app/(app)/clients/page.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadLists();
+    fetch("/api/contacts/tags")
+      .then((r) => r.json())
+      .then((data) => setAllTags(data.tags ?? []))
+      .catch(() => setAllTags([]));
+  }, []);
+
+  async function createList() {
+    const errors: Record<string, string> = {};
+    if (!listForm.name.trim()) errors.name = "Give the list a name.";
+    if (!listForm.tag) errors.tag = "Pick a tag.";
+    setListErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setSavingList(true);
+    try {
+      const res = await fetch("/api/contact-lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: listForm.name.trim(), tag: listForm.tag }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setListErrors(data.errors ?? { name: data.error ?? "Could not save list." });
+        return;
+      }
+      setListModalOpen(false);
+      setListForm({ name: "", tag: "" });
+      loadLists();
+    } finally {
+      setSavingList(false);
+    }
+  }
+
+  async function deleteList() {
+    if (!confirmDeleteList) return;
+    const res = await fetch(`/api/contact-lists/${confirmDeleteList.id}`, { method: "DELETE" });
+    if (res.ok) setLists((prev) => prev.filter((l) => l.id !== confirmDeleteList.id));
+  }
 
   // Used only to preview "already in your contacts" before importing —
   // fetched once, doesn't need to block the rest of the page.
@@ -167,6 +235,12 @@ export default function ContactImportPage() {
       const refreshed = new Set(existingPhones);
       preview.valid.forEach((r) => refreshed.add(r.phone));
       setExistingPhones(refreshed);
+      // New tags may have come in with this file — refresh so "Create list"
+      // can offer them immediately.
+      fetch("/api/contacts/tags")
+        .then((r) => r.json())
+        .then((d) => setAllTags(d.tags ?? []))
+        .catch(() => {});
     } finally {
       setImporting(false);
     }
@@ -179,11 +253,22 @@ export default function ContactImportPage() {
     { key: "tags", header: "Tags", render: (row) => row.tags || "(defaults to “normal”)" },
   ];
 
-  const listColumns: Column<ContactList>[] = [
+  const listColumns: Column<SavedList>[] = [
     { key: "name", header: "List", render: (row) => <span className="font-medium text-slate-900">{row.name}</span> },
     { key: "count", header: "Contacts", render: (row) => formatNumber(row.count) },
+    { key: "tag", header: "Tag", render: (row) => <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{row.tag}</span> },
     { key: "source", header: "Source", render: (row) => row.source },
     { key: "updated", header: "Updated", render: (row) => formatDate(row.updatedAt) },
+    {
+      key: "actions",
+      header: "",
+      className: "text-right",
+      render: (row) => (
+        <Button size="sm" variant="danger" aria-label={`Delete ${row.name}`} onClick={() => setConfirmDeleteList(row)}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -375,12 +460,84 @@ export default function ContactImportPage() {
       </div>
 
       <Card className="mt-5">
-        <CardHeader title="Saved contact lists" description="Reuse these as campaign audiences" />
-        <InlineAlert tone="warning" className="mx-5 mt-4">
-          Still demo data — saved lists become real once Campaigns is connected to the database.
-        </InlineAlert>
-        <DataTable columns={listColumns} rows={lists} rowKey={(row) => row.id} />
+        <CardHeader
+          title="Saved contact lists"
+          description="Real, live — each list is a name attached to a tag; membership always reflects your current contacts."
+          action={
+            <Button size="sm" variant="primary" onClick={() => setListModalOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> New list
+            </Button>
+          }
+        />
+        {listsLoading ? (
+          <LoadingState rows={2} label="Loading lists" />
+        ) : lists.length === 0 ? (
+          <EmptyState
+            title="No saved lists yet"
+            description="Save a tag as a named list to reuse it as a campaign audience."
+            action={
+              <Button variant="primary" onClick={() => setListModalOpen(true)}>
+                <Plus className="h-4 w-4" /> New list
+              </Button>
+            }
+          />
+        ) : (
+          <DataTable columns={listColumns} rows={lists} rowKey={(row) => row.id} />
+        )}
       </Card>
+
+      <Modal
+        open={listModalOpen}
+        onClose={() => !savingList && setListModalOpen(false)}
+        title="Save a new list"
+        description="A list is just a name for a tag — anyone with that tag is a member."
+        size="sm"
+        footer={
+          <>
+            <Button onClick={() => setListModalOpen(false)} disabled={savingList}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={createList} disabled={savingList}>
+              {savingList ? "Saving…" : "Save list"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <FormField
+            label="List name"
+            required
+            value={listForm.name}
+            error={listErrors.name}
+            onChange={(v) => setListForm((f) => ({ ...f, name: v }))}
+            placeholder="Festive campaign 2026"
+          />
+          {allTags.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No tags yet — add a tag to a contact first (Contacts page, or the Tags column when
+              importing), then come back here.
+            </p>
+          ) : (
+            <SelectField
+              label="Tag"
+              value={listForm.tag}
+              error={listErrors.tag}
+              onChange={(v) => setListForm((f) => ({ ...f, tag: v }))}
+              options={allTags.map((t) => ({ label: t, value: t }))}
+            />
+          )}
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(confirmDeleteList)}
+        title="Delete list"
+        message={`Remove the saved list "${confirmDeleteList?.name}"? The "${confirmDeleteList?.tag}" tag and its contacts are not affected.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={deleteList}
+        onClose={() => setConfirmDeleteList(null)}
+      />
 
       <Modal
         open={confirmOpen}

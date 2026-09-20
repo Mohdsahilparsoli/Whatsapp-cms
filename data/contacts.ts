@@ -1,4 +1,4 @@
-import type { Contact, ContactList } from "@/types";
+import type { Contact } from "@/types";
 
 const firstNames = [
   "Aarav", "Diya", "Rohan", "Isha", "Kabir", "Meera", "Arjun", "Sana",
@@ -36,14 +36,6 @@ export const contacts: Contact[] = Array.from({ length: 64 }, (_, i) => {
     lastMessageAt: i % 3 === 0 ? `2026-09-${pad((i % 14) + 1)}` : undefined,
   };
 });
-
-export const contactLists: ContactList[] = [
-  { id: "l1", name: "All opted-in contacts", count: 8104, source: "System list", updatedAt: "2026-09-14" },
-  { id: "l2", name: "Festive campaign 2026", count: 3240, source: "CSV import", updatedAt: "2026-09-10" },
-  { id: "l3", name: "Cart abandoners (30 days)", count: 912, source: "Segment", updatedAt: "2026-09-12" },
-  { id: "l4", name: "Store walk-ins — Delhi", count: 540, source: "Excel import", updatedAt: "2026-08-29" },
-  { id: "l5", name: "VIP customers", count: 186, source: "Manual", updatedAt: "2026-09-01" },
-];
 
 export const messageHistory = [
   { id: "m1", campaign: "Festive Drop 2026", status: "read", date: "2026-09-12 10:24" },

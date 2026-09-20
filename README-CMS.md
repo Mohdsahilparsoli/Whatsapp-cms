@@ -321,6 +321,48 @@ everywhere at once, with no per-feature changes needed. If the stored token can'
 (e.g. `CREDENTIALS_ENCRYPTION_KEY` changed since they connected), sends quietly fall back to the
 shared number rather than hard-failing.
 
+## Inbox — real ticks, real sending, AND real receiving
+
+- Text replies (`/api/whatsapp/send-test`) and photo/document sends
+  (`/api/whatsapp/send-media`) create a real `MessageRecord` (for Message
+  Status/Reports) **and** a real `Conversation` + outbound `ChatMessage`
+  (for the Inbox thread itself) — so the Inbox now reads from real,
+  persisted conversations (`app/api/inbox/*`), not seeded mock data.
+- **Real incoming messages**: `app/api/webhooks/meta/route.ts` now also
+  processes `change.value.messages` (previously only delivery/read
+  statuses). For each incoming message it:
+  1. Resolves which **client** it belongs to, by matching the webhook's
+     `metadata.phone_number_id` against that client's connected
+     `WhatsAppAccount.phoneNumberId` (WhatsApp Account Setup) — this is
+     what makes per-client routing possible now that accounts are real,
+     solving the multi-tenant ambiguity noted earlier in this file.
+  2. Finds-or-creates that client's `Conversation` for the sender's phone,
+     and creates an inbound `ChatMessage`.
+  3. A message to a phone number **nobody has connected yet** has no client
+     to attribute it to and is dropped — expected, not a bug, until that
+     number is connected in WhatsApp Account Setup.
+  - Incoming image/document messages are recorded with any caption/filename
+    Meta sends, but the actual file isn't downloaded/re-hosted yet — shown
+    as a placeholder ("📷 Photo received (not downloaded)"), a reasonable
+    follow-up if you need it.
+- Ticks (✓ sent, ✓✓ delivered, ✓✓ blue read) now update by simply re-polling
+  the conversation's real messages every 4s — the webhook's status handler
+  updates the matching outbound `ChatMessage.status` directly by
+  `whatsappMessageId`, alongside the existing `MessageRecord` update.
+- **Still requires the same public-URL webhook setup** described earlier in
+  this file (ngrok for local dev) — without it, the Inbox stays empty even
+  if messages genuinely arrive on WhatsApp, same as delivered/read staying
+  stuck at "sent".
+- The paperclip button uploads a photo (jpg/png/webp) or document
+  (pdf/doc/docx/xls/xlsx/txt) via `POST /api/whatsapp/upload` (saved to
+  local disk under `public/uploads/inbox/<clientId>/`, same tradeoff as
+  Template media — self-hosted only, not serverless), then sends it via
+  `POST /api/whatsapp/send-media`. Meta's servers fetch the file from the
+  URL you send them, so this only works if this app is reachable on a
+  public URL — on `localhost` the upload succeeds but the WhatsApp send
+  will fail (same requirement as the webhook). Text messages don't have
+  this limitation.
+
 ## Client Admin Dashboard + Notifications bell (real)
 
 - `GET /api/dashboard/client` powers the whole dashboard: real contact
@@ -370,34 +412,6 @@ shared number rather than hard-failing.
   (name, tags, ...) never silently resets these.
 - Opted-out contacts are genuinely excluded from Campaigns/Bulk Sender —
   both only ever query contacts whose real `consent` is `opted_in`.
-
-## Inbox — real ticks + real photo/document sending
-
-- Text replies (`/api/whatsapp/send-test`) now also create a real
-  `MessageRecord`, so they show up on Message Status/Reports **and** so the
-  Inbox itself can poll for real WhatsApp-style ticks: ✓ grey (sent), ✓✓
-  grey (delivered), ✓✓ blue (read) — `Ticks()` in
-  `app/(app)/inbox/page.tsx` reads each message's real `status`, refreshed
-  every 4s via `GET /api/whatsapp/message-status?ids=...`. Delivered/read
-  only ever appear once the delivery webhook is configured (same caveat as
-  Message Status).
-- The paperclip button uploads a photo (jpg/png/webp) or document
-  (pdf/doc/docx/xls/xlsx/txt) via `POST /api/whatsapp/upload` (saved to
-  local disk under `public/uploads/inbox/<clientId>/`, same tradeoff as
-  Template media — self-hosted only, not serverless), then sends it via
-  `POST /api/whatsapp/send-media` as a real WhatsApp image/document message.
-- **Important**: Meta's servers fetch the file from the URL you send them —
-  on `localhost` that URL isn't reachable from the internet, so a photo/doc
-  send will fail (same public-URL requirement as the delivery webhook; use
-  ngrok or a real deployment). Text messages don't have this limitation.
-- **What's still not real**: incoming messages. The conversation list and
-  each customer's own messages are still the seeded mock data
-  (`data/campaigns.ts`) — real incoming messages require each client to
-  have its own connected WhatsApp Business Account (so an incoming message
-  can be routed to the right client), which is the still-pending "WhatsApp
-  Account Setup" phase. With only one shared test number today, there's no
-  reliable way to know which client an inbound message belongs to, so it's
-  intentionally not wired up yet rather than guessing.
 
 ## Reports & Analytics (real)
 
