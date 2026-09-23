@@ -363,6 +363,18 @@ shared number rather than hard-failing.
   will fail (same requirement as the webhook). Text messages don't have
   this limitation.
 
+## Super Admin Dashboard (real)
+
+- `GET /api/dashboard/admin` powers the whole page: real client counts
+  (total/active/suspended/expiring within 45 days), real total messages sent
+  platform-wide (via `MessageRecord.groupBy` per client — not the stale
+  `Client.messagesSent` field, same reasoning as `/api/reports/admin`), a
+  real "Client usage overview" table (real contacts + real messages sent
+  per client), the 5 most recent real campaigns across **all** clients
+  (with the client's name attached), and a real "Recent activity" feed
+  (clients added and campaigns completed in the last 7 days, across every
+  client).
+
 ## Client Admin Dashboard + Notifications bell (real)
 
 - `GET /api/dashboard/client` powers the whole dashboard: real contact
