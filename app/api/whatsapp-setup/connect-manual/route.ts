@@ -57,30 +57,42 @@ export async function POST(request: Request) {
     );
   }
 
-  const account = await prisma.whatsAppAccount.upsert({
-    where: { clientId: auth.clientId },
-    update: {
-      connected: true,
-      businessName: businessName || phoneInfo.verified_name || null,
-      wabaId,
-      phoneNumberId,
-      displayNumber: phoneInfo.display_phone_number ?? null,
-      qualityRating: phoneInfo.quality_rating ?? null,
-      accessTokenEnc: encryptSecret(accessToken!),
-      connectedAt: new Date(),
-    },
-    create: {
-      clientId: auth.clientId,
-      connected: true,
-      businessName: businessName || phoneInfo.verified_name || null,
-      wabaId,
-      phoneNumberId,
-      displayNumber: phoneInfo.display_phone_number ?? null,
-      qualityRating: phoneInfo.quality_rating ?? null,
-      accessTokenEnc: encryptSecret(accessToken!),
-      connectedAt: new Date(),
-    },
-  });
+  let account;
+  try {
+    account = await prisma.whatsAppAccount.upsert({
+      where: { clientId: auth.clientId },
+      update: {
+        connected: true,
+        businessName: businessName || phoneInfo.verified_name || null,
+        wabaId,
+        phoneNumberId,
+        displayNumber: phoneInfo.display_phone_number ?? null,
+        qualityRating: phoneInfo.quality_rating ?? null,
+        accessTokenEnc: encryptSecret(accessToken!),
+        connectedAt: new Date(),
+      },
+      create: {
+        clientId: auth.clientId,
+        connected: true,
+        businessName: businessName || phoneInfo.verified_name || null,
+        wabaId,
+        phoneNumberId,
+        displayNumber: phoneInfo.display_phone_number ?? null,
+        qualityRating: phoneInfo.quality_rating ?? null,
+        accessTokenEnc: encryptSecret(accessToken!),
+        connectedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    console.error("whatsapp-setup/connect-manual: failed to save account", err);
+    return NextResponse.json(
+      {
+        error:
+          "Meta accepted these credentials, but saving them failed — check CREDENTIALS_ENCRYPTION_KEY is set in .env and the server logs for details.",
+      },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({
     connected: true,
