@@ -74,13 +74,25 @@ interface ButtonLike {
   url: string;
 }
 
+/** Meta's Message Templates API rejects a Call button's phone_number
+ * outright ((#192) "is not a valid phone number") if it has spaces, dashes,
+ * or parentheses in it — it wants a clean E.164-style string, e.g.
+ * "+918700621883", not "+91 87006 21883" (which is exactly what the
+ * template builder's Call button field naturally produces since it's
+ * free-form text). Strips everything except digits and a leading "+". */
+function sanitizePhoneNumber(raw: string): string {
+  const trimmed = raw.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  return trimmed.startsWith("+") ? `+${digits}` : digits;
+}
+
 /** "whatsapp"-kind buttons are also URL-shaped in this app (see
  * lib/whatsappMessage.ts's ctaButton matcher) — both map to Meta's "URL"
  * button type; only "call" maps to "PHONE_NUMBER". */
 function toMetaButtons(buttons: ButtonLike[]) {
   return buttons.slice(0, 3).map((b) =>
     b.kind === "call"
-      ? { type: "PHONE_NUMBER", text: b.label.slice(0, 20) || "Call", phone_number: b.url }
+      ? { type: "PHONE_NUMBER", text: b.label.slice(0, 20) || "Call", phone_number: sanitizePhoneNumber(b.url) }
       : { type: "URL", text: b.label.slice(0, 20) || "Open", url: b.url }
   );
 }
