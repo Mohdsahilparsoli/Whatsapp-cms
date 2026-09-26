@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { storeFile } from "@/lib/fileStorage";
+import { normalizeMetaStatus } from "@/lib/metaTemplates";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -48,6 +49,16 @@ interface ChangeValue {
   messages?: IncomingMessage[];
 }
 
+/** Real-time Meta Message Template review updates — arrives on a separate
+ * webhook field ("message_template_status_update"), not "messages". See
+ * lib/metaTemplates.ts for the rest of the real Template system this feeds. */
+interface TemplateStatusValue {
+  event?: string; // "APPROVED" | "REJECTED" | "PENDING" | "PAUSED" | "DISABLED" | ...
+  message_template_id?: number | string;
+  message_template_name?: string;
+  reason?: string;
+}
+
 /**
  * Real delivery/read status updates AND real incoming messages from Meta.
  * ⚠️ This only ever fires if:
@@ -75,23 +86,30 @@ interface ChangeValue {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const entries: { changes?: { value?: ChangeValue }[] }[] = body?.entry ?? [];
+    const entries: { changes?: { field?: string; value?: ChangeValue | TemplateStatusValue }[] }[] =
+      body?.entry ?? [];
 
     for (const entry of entries) {
       for (const change of entry.changes ?? []) {
         const value = change.value;
         if (!value) continue;
 
-        for (const status of value.statuses ?? []) {
+        if (change.field === "message_template_status_update") {
+          await applyTemplateStatusUpdate(value as TemplateStatusValue);
+          continue;
+        }
+
+        const messagesValue = value as ChangeValue;
+        for (const status of messagesValue.statuses ?? []) {
           await applyStatus(status);
         }
 
-        if (value.messages && value.messages.length > 0) {
-          const phoneNumberId = value.metadata?.phone_number_id;
+        if (messagesValue.messages && messagesValue.messages.length > 0) {
+          const phoneNumberId = messagesValue.metadata?.phone_number_id;
           const clientId = phoneNumberId ? await resolveClientId(phoneNumberId) : null;
           if (clientId) {
-            const senderName = value.contacts?.[0]?.profile?.name ?? null;
-            for (const message of value.messages) {
+            const senderName = messagesValue.contacts?.[0]?.profile?.name ?? null;
+            for (const message of messagesValue.messages) {
               await recordIncomingMessage(clientId, senderName, message);
             }
           }
@@ -269,6 +287,30 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
       whatsappMessageId: message.id,
       status: "sent",
       createdAt: when,
+    },
+  });
+}
+
+/**
+ * Real-time sync for a template's Meta review outcome — matched back to our
+ * CustomTemplate row by metaTemplateId (globally unique, set when submitted
+ * via app/api/templates/[id]/submit/route.ts). Not scoped to a client here
+ * since the webhook payload doesn't carry our clientId — the metaTemplateId
+ * match is what does that, same idea as MessageRecord.whatsappMessageId.
+ * A template we don't recognize (deleted locally, or not ours) is a no-op.
+ */
+async function applyTemplateStatusUpdate(value: TemplateStatusValue) {
+  if (!value.message_template_id) return;
+  const metaTemplateId = String(value.message_template_id);
+
+  const template = await prisma.customTemplate.findFirst({ where: { metaTemplateId } });
+  if (!template) return;
+
+  await prisma.customTemplate.update({
+    where: { id: template.id },
+    data: {
+      metaStatus: normalizeMetaStatus(value.event),
+      metaRejectionReason: value.reason && value.reason !== "NONE" ? value.reason : null,
     },
   });
 }

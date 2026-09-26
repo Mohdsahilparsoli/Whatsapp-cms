@@ -48,6 +48,8 @@ export function customToView(template: CustomTemplate): TemplateView {
     media: template.media,
     buttons: template.buttons,
     variables: template.variables,
+    metaStatus: template.metaStatus,
+    metaRejectionReason: template.metaRejectionReason,
     updatedAt: template.updatedAt,
   };
 }
@@ -56,7 +58,14 @@ export const metaTemplateViews: TemplateView[] = metaTemplates.map(metaToView);
 
 export type CustomTemplateDraft = Omit<
   CustomTemplate,
-  "id" | "clientId" | "createdAt" | "updatedAt"
+  | "id"
+  | "clientId"
+  | "createdAt"
+  | "updatedAt"
+  | "metaStatus"
+  | "metaTemplateId"
+  | "metaRejectionReason"
+  | "submittedAt"
 >;
 
 export function emptyDraft(): CustomTemplateDraft {
@@ -90,6 +99,12 @@ interface CustomTemplatesContextValue {
   create: (draft: CustomTemplateDraft) => Promise<SaveTemplateResult>;
   update: (id: string, draft: CustomTemplateDraft) => Promise<SaveTemplateResult>;
   remove: (id: string) => Promise<{ ok: true } | { ok: false; error?: string }>;
+  /** Submits a saved (non-draft) template to Meta for real approval — see
+   * app/api/templates/[id]/submit/route.ts and lib/metaTemplates.ts. */
+  submitForApproval: (id: string) => Promise<SaveTemplateResult>;
+  /** Manually re-checks a submitted template's status with Meta — a
+   * backstop for the message_template_status_update webhook. */
+  checkApprovalStatus: (id: string) => Promise<SaveTemplateResult>;
   /** True when another template of this client already uses the name
    * (client-side check for instant feedback — the server re-checks too). */
   nameTaken: (name: string, ignoreId?: string) => boolean;
@@ -182,6 +197,30 @@ export function CustomTemplatesProvider({
     }
   }, []);
 
+  const submitForApproval = useCallback(async (id: string): Promise<SaveTemplateResult> => {
+    try {
+      const res = await fetch(`/api/templates/${id}/submit`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error };
+      setMine((prev) => prev.map((t) => (t.id === id ? data.template : t)));
+      return { ok: true, template: data.template };
+    } catch {
+      return { ok: false, error: "Could not reach the server. Please try again." };
+    }
+  }, []);
+
+  const checkApprovalStatus = useCallback(async (id: string): Promise<SaveTemplateResult> => {
+    try {
+      const res = await fetch(`/api/templates/${id}/status`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error };
+      setMine((prev) => prev.map((t) => (t.id === id ? data.template : t)));
+      return { ok: true, template: data.template };
+    } catch {
+      return { ok: false, error: "Could not reach the server. Please try again." };
+    }
+  }, []);
+
   const nameTaken = useCallback(
     (name: string, ignoreId?: string) =>
       mine.some(
@@ -201,9 +240,11 @@ export function CustomTemplatesProvider({
       create,
       update,
       remove,
+      submitForApproval,
+      checkApprovalStatus,
       nameTaken,
     }),
-    [mine, loading, load, create, update, remove, nameTaken]
+    [mine, loading, load, create, update, remove, submitForApproval, checkApprovalStatus, nameTaken]
   );
 
   return (

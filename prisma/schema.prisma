@@ -188,6 +188,23 @@ enum TemplateMediaKind {
   document
 }
 
+/// Real Meta Message Template approval status — separate from
+/// CustomTemplateStatus (draft/custom), which only tracks whether the
+/// template is saved in THIS app. A "custom" template can additionally be
+/// submitted to Meta for approval, and this tracks where that stands:
+/// not_submitted (never sent to Meta, or edited since — see PUT handler) →
+/// pending (awaiting Meta's review) → approved (can now send via the real
+/// type:"template" API, which is the only way to combine a Call button with
+/// another button) or rejected/paused/disabled (Meta's own terminal states).
+enum MetaTemplateStatus {
+  not_submitted
+  pending
+  approved
+  rejected
+  paused
+  disabled
+}
+
 /// A client's own WhatsApp message template — Templates Phase 1 scope is
 /// Create + listing only; there's no Edit/Delete yet (see ContactForm-style
 /// note in app/(app)/templates/page.tsx). Meta-Approved templates are NOT in
@@ -220,6 +237,20 @@ model CustomTemplate {
   /// object column type.
   buttons   Json     @default("[]")
   variables String[] @default([])
+
+  /// Real Meta Message Template submission tracking (see MetaTemplateStatus
+  /// above). metaTemplateId is Meta's own id for this template once
+  /// submitted — used to send via the real type:"template" API once
+  /// approved, to check status, and to match incoming
+  /// message_template_status_update webhooks back to this row.
+  metaTemplateId      String?             @unique
+  metaStatus          MetaTemplateStatus  @default(not_submitted)
+  /// Locale code Meta actually approved this under (e.g. "en_US", "hi") —
+  /// needed at send time because the template API requires the exact code,
+  /// not the friendly `language` name shown in the UI.
+  metaLanguageCode    String?
+  metaRejectionReason String?
+  submittedAt         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FileText, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CloudUpload, FileText, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -34,6 +34,8 @@ export default function TemplatesPage() {
     create,
     update,
     remove,
+    submitForApproval,
+    checkApprovalStatus,
     nameTaken,
   } = useCustomTemplates();
 
@@ -49,6 +51,7 @@ export default function TemplatesPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [metaActionId, setMetaActionId] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const base: TemplateView[] =
@@ -103,6 +106,28 @@ export default function TemplatesPage() {
       );
     }
     return result;
+  }
+
+  async function handleSubmitForApproval(row: TemplateView) {
+    setMetaActionId(row.id);
+    const result = await submitForApproval(row.id);
+    setMetaActionId(null);
+    setToast(
+      result.ok
+        ? `“${result.template.name}” submitted to Meta for review.`
+        : result.error ?? "Could not submit that template to Meta."
+    );
+  }
+
+  async function handleCheckStatus(row: TemplateView) {
+    setMetaActionId(row.id);
+    const result = await checkApprovalStatus(row.id);
+    setMetaActionId(null);
+    setToast(
+      result.ok
+        ? `“${result.template.name}” is now “${result.template.metaStatus?.replace(/_/g, " ")}” with Meta.`
+        : result.error ?? "Could not check status with Meta."
+    );
   }
 
   async function handleDelete() {
@@ -164,10 +189,18 @@ export default function TemplatesPage() {
       key: "status",
       header: "Status",
       render: (row) => (
-        <StatusBadge
-          status={row.status}
-          label={row.status === "custom" ? "Custom" : undefined}
-        />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge
+            status={row.status}
+            label={row.status === "custom" ? "Custom" : undefined}
+          />
+          {/* Real Meta Message Template approval status — independent of
+              the "Custom"/"Draft" status above (see lib/metaTemplates.ts).
+              Only shown once submission has actually happened. */}
+          {row.source === "custom" && row.metaStatus && row.metaStatus !== "not_submitted" && (
+            <StatusBadge status={row.metaStatus} label={`Meta: ${row.metaStatus.replace(/_/g, " ")}`} />
+          )}
+        </div>
       ),
     },
     {
@@ -187,6 +220,31 @@ export default function TemplatesPage() {
           </Button>
           {row.source === "custom" && (
             <>
+              {row.status === "custom" &&
+                (!row.metaStatus || row.metaStatus === "not_submitted" || row.metaStatus === "rejected") && (
+                  <Button
+                    size="sm"
+                    onClick={() => handleSubmitForApproval(row)}
+                    disabled={metaActionId === row.id}
+                  >
+                    {metaActionId === row.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CloudUpload className="h-3.5 w-3.5" />
+                    )}
+                    {row.metaStatus === "rejected" ? "Resubmit to Meta" : "Submit to Meta"}
+                  </Button>
+                )}
+              {row.metaStatus === "pending" && (
+                <Button size="sm" onClick={() => handleCheckStatus(row)} disabled={metaActionId === row.id}>
+                  {metaActionId === row.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  Check status
+                </Button>
+              )}
               <Button size="sm" onClick={() => openEdit(row)}>
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </Button>
@@ -374,6 +432,17 @@ export default function TemplatesPage() {
                 />
               </span>
             </div>
+
+            {preview.source === "custom" && preview.metaStatus && preview.metaStatus !== "not_submitted" && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-xs">
+                <span className="text-slate-500">Meta approval status</span>
+                <StatusBadge status={preview.metaStatus} label={preview.metaStatus.replace(/_/g, " ")} />
+              </div>
+            )}
+
+            {preview.metaStatus === "rejected" && preview.metaRejectionReason && (
+              <InlineAlert tone="error">Meta&apos;s rejection reason: {preview.metaRejectionReason}</InlineAlert>
+            )}
           </div>
         )}
       </Modal>

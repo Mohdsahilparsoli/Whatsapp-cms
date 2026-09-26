@@ -272,6 +272,17 @@ export type CustomTemplateStatus = "draft" | "custom";
 export type TemplateMediaKind = "none" | "image" | "video" | "document";
 export type TemplateButtonKind = "url" | "call" | "whatsapp";
 
+/** Real Meta Message Template approval status for a Custom Template — see
+ * lib/metaTemplates.ts. Independent of CustomTemplateStatus (draft/custom),
+ * which only tracks whether the template is saved in this app at all. */
+export type MetaTemplateStatus =
+  | "not_submitted"
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "paused"
+  | "disabled";
+
 export interface TemplateButton {
   id: string;
   kind: TemplateButtonKind;
@@ -302,6 +313,12 @@ export interface CustomTemplate {
   buttons: TemplateButton[];
   /** Friendly labels for {{1}}, {{2}}, {{3}} … */
   variables: string[];
+  /** Real Meta submission tracking — see lib/metaTemplates.ts. "not_submitted"
+   * until "Submit for Meta approval" is used from the Templates page. */
+  metaStatus: MetaTemplateStatus;
+  metaTemplateId?: string | null;
+  metaRejectionReason?: string | null;
+  submittedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -321,5 +338,8 @@ export interface TemplateView {
   media: TemplateMedia;
   buttons: TemplateButton[];
   variables: string[];
+  /** Only meaningful for source: "custom" — see CustomTemplate. */
+  metaStatus?: MetaTemplateStatus;
+  metaRejectionReason?: string | null;
   updatedAt: string;
 }

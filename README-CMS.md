@@ -348,6 +348,71 @@ though the template builder itself saved them correctly. Fixed:
   fresh from the database and rebuilds this same payload (a `QueueJob` row
   only stores a text preview, not the full media/button shape) — falling
   back to plain text from that preview if the template was deleted since.
+- **This one-button/no-Call limitation is now solvable** — see the real Meta
+  Message Template system below, which is the only real way around it.
+
+## Real Meta Message Template system — Call + other buttons together
+
+The limitation above (only one button, never a Call button, in free-form
+messages) is a genuine WhatsApp/Meta platform restriction, not a bug in this
+app. The only real fix is Meta's official **Message Templates**: submit a
+template to Meta for review, and once **approved**, send it via the
+`type: "template"` API, which supports up to 3 buttons of **mixed types**
+(URL, Call/phone, Quick Reply) at once. This is now built:
+
+- **`lib/metaTemplates.ts`** is the whole feature: builds the `components`
+  array Meta's Message Templates API expects (`submitTemplateToMeta`),
+  checks a template's live status with Meta (`fetchTemplateStatusFromMeta`),
+  and builds the real `type: "template"` send payload
+  (`buildTemplateSendPayload`) once approved.
+- **New `CustomTemplate` columns** (needs a migration — see below):
+  `metaTemplateId`, `metaStatus` (`not_submitted` → `pending` → `approved` /
+  `rejected` / `paused` / `disabled`), `metaLanguageCode` (the locale code
+  Meta actually approved it under, e.g. `en_US`), `metaRejectionReason`,
+  `submittedAt`.
+- **Templates page**: a saved (non-draft) Custom Template now shows a
+  "Submit to Meta" button. Once submitted it shows a live Meta status badge
+  and a "Check status" button (a manual backstop for the webhook below).
+  Editing a template that was already submitted/approved automatically
+  resets it back to `not_submitted` — Meta approves an exact snapshot of the
+  text/buttons, so a changed template has to go through review again before
+  it can be trusted to send as that template.
+- **Real-time sync via webhook**: `app/api/webhooks/meta/route.ts` now also
+  handles the `message_template_status_update` field (subscribe to it in
+  the Meta App dashboard alongside `messages`) and updates the matching
+  template's status automatically the moment Meta approves/rejects it.
+- **Sending automatically switches once approved**: `buildPayloadForContact`
+  in `lib/queueProcessor.ts` checks `metaStatus` — `"approved"` templates go
+  out via the real `type: "template"` API (Call button and all); everything
+  else keeps using the existing free-form/interactive path. Nothing else
+  about Bulk Sender/Campaigns changes — {{1}} still auto-fills with each
+  contact's own name either way (`lib/personalize.ts`).
+- **Scope: text-only headers for now.** A media (image/video/document)
+  header needs Meta's separate Resumable Upload API to get a
+  `header_handle` before submission — not built yet. Submitting a template
+  with a media header is rejected up front with a clear message instead of
+  failing against Meta with a confusing error.
+
+**You need to do two things for this to work in production:**
+
+1. **Run the migration** — I can't run Prisma CLI commands in this sandbox
+   (network to `binaries.prisma.sh` is blocked here), so run this yourself
+   against your real database once this is deployed:
+   ```
+   npx prisma migrate dev --name add_meta_template_status
+   ```
+   (or `npx prisma migrate deploy` directly against production).
+2. **Meta App Review**: submitting/checking templates needs the
+   `whatsapp_business_management` permission on your access token (separate
+   from `whatsapp_business_messaging`, which is all you needed to send/
+   receive messages so far). If you're still on a test/development access
+   token this may already be covered — Meta's dashboard will tell you if a
+   submit call gets rejected for a missing permission.
+3. **Shared test setup**: if you're relying on `META_TEST_PHONE_NUMBER_ID` /
+   `META_TEST_ACCESS_TOKEN` (no client has connected their own WhatsApp
+   account yet), also set `META_TEST_WABA_ID` in `.env` — template
+   submission is scoped to the WhatsApp Business Account, not the phone
+   number, and there's no other way to know it for the shared setup.
 
 ## Uploads actually persist on Vercel now (real)
 

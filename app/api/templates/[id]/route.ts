@@ -58,6 +58,15 @@ export async function PUT(request: Request, { params }: Params) {
     return NextResponse.json({ errors }, { status: 400 });
   }
 
+  // Editing a template that was already submitted/approved invalidates that
+  // submission — Meta approves an exact snapshot of the text/buttons, and
+  // buildTemplateSendPayload (lib/metaTemplates.ts) relies on our stored
+  // header/body matching what Meta has on file. Rather than silently
+  // sending stale or mismatched content, any edit resets Meta status back
+  // to "not_submitted" so the client has to resubmit (and re-review) the
+  // new version before it can be sent as a real template again.
+  const resetMeta = existing.metaStatus !== "not_submitted";
+
   const template = await prisma.customTemplate.update({
     where: { id },
     data: {
@@ -73,6 +82,15 @@ export async function PUT(request: Request, { params }: Params) {
       mediaFileName: t.mediaFileName,
       buttons: t.buttons,
       variables: t.variables,
+      ...(resetMeta
+        ? {
+            metaStatus: "not_submitted",
+            metaTemplateId: null,
+            metaLanguageCode: null,
+            metaRejectionReason: null,
+            submittedAt: null,
+          }
+        : {}),
     },
   });
 

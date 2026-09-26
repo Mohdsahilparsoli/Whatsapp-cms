@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getQueueSettings } from "@/lib/queueSettings";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
+import { buildTemplateSendPayload } from "@/lib/metaTemplates";
 import { personalizeVariables } from "@/lib/personalize";
 import { fillTemplate } from "@/lib/utils";
 
@@ -24,6 +25,25 @@ export function buildPayloadForContact(
   origin: string
 ): Record<string, unknown> {
   const values = personalizeVariables(sharedVariables, contact);
+
+  // An APPROVED Meta template must go out via the real type:"template" API
+  // with its ORIGINAL {{n}} placeholders intact (Meta substitutes them
+  // server-side) — this is the only way to send multiple mixed-type buttons
+  // (e.g. a Call button together with a URL button), which free-form
+  // messages can never do (see lib/whatsappMessage.ts). Anything not yet
+  // approved keeps using the existing free-form/interactive fallback below.
+  if (template.metaStatus === "approved" && template.metaTemplateId && template.metaLanguageCode) {
+    return buildTemplateSendPayload(
+      {
+        name: template.name ?? "",
+        metaLanguageCode: template.metaLanguageCode,
+        header: template.header,
+        body: template.body,
+      },
+      values
+    ).payload;
+  }
+
   return buildOutboundMessage(
     {
       header: template.header ? fillTemplate(template.header, values) : null,

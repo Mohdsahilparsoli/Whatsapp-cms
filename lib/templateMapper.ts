@@ -2,6 +2,7 @@ import { toISODate } from "@/lib/utils";
 import type {
   CustomTemplate,
   CustomTemplateStatus,
+  MetaTemplateStatus,
   TemplateButton,
   TemplateMediaKind,
 } from "@/types";
@@ -21,6 +22,10 @@ export function toPublicTemplate(row: {
   mediaFileName: string | null;
   buttons: unknown;
   variables: string[];
+  metaTemplateId?: string | null;
+  metaStatus?: string;
+  metaRejectionReason?: string | null;
+  submittedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }): CustomTemplate {
@@ -41,6 +46,10 @@ export function toPublicTemplate(row: {
     },
     buttons: Array.isArray(row.buttons) ? (row.buttons as TemplateButton[]) : [],
     variables: row.variables,
+    metaStatus: (row.metaStatus as MetaTemplateStatus) ?? "not_submitted",
+    metaTemplateId: row.metaTemplateId ?? null,
+    metaRejectionReason: row.metaRejectionReason ?? null,
+    submittedAt: row.submittedAt ? toISODate(row.submittedAt) : null,
     createdAt: toISODate(row.createdAt),
     updatedAt: toISODate(row.updatedAt),
   };

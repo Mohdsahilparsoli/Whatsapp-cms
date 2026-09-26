@@ -17,6 +17,14 @@ export interface TemplateLike {
   mediaKind: "none" | "image" | "video" | "document";
   mediaUrl: string | null;
   buttons: unknown; // Json column — validated/narrowed below
+  /** Only needed for the real Meta Message Template send path — see
+   * lib/metaTemplates.ts and buildPayloadForContact in lib/queueProcessor.ts,
+   * which branches to it when metaStatus is "approved". Optional here so
+   * this interface still fits every existing free-form-only caller. */
+  name?: string;
+  metaStatus?: string;
+  metaTemplateId?: string | null;
+  metaLanguageCode?: string | null;
 }
 
 export interface BuiltMessage {
