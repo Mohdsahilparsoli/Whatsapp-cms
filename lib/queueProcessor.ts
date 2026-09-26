@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { getQueueSettings } from "@/lib/queueSettings";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
 
 interface BatchContact {
   id: string;
@@ -25,10 +26,13 @@ async function sleep(ms: number) {
 
 /** Sends one contact's message via Meta's Graph API — same shared
  * test-number credentials as everywhere else this app sends real messages
- * (see app/api/whatsapp/send-test/route.ts for the full explanation). */
+ * (see app/api/whatsapp/send-test/route.ts for the full explanation).
+ * `payload` is the full message body (text/media/interactive) built by
+ * lib/whatsappMessage.ts, so photo/button/footer actually go out instead of
+ * being silently dropped down to plain text. */
 async function sendOne(
   phone: string,
-  messageText: string,
+  payload: Record<string, unknown>,
   phoneNumberId: string,
   accessToken: string
 ): Promise<{ ok: true; whatsappMessageId: string | null } | { ok: false; error: string }> {
@@ -40,12 +44,7 @@ async function sendOne(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to,
-        type: "text",
-        text: { body: messageText },
-      }),
+      body: JSON.stringify({ messaging_product: "whatsapp", to, ...payload }),
     });
     const data = await res.json().catch(() => null);
     if (res.ok) return { ok: true, whatsappMessageId: data?.messages?.[0]?.id ?? null };
@@ -102,7 +101,7 @@ async function recordMessage(
  * shared test number (see lib/whatsappCredentials.ts). */
 async function sendBatch(
   contacts: BatchContact[],
-  messageText: string,
+  payload: Record<string, unknown>,
   messagesPerMinute: number,
   ctx: SendContext
 ) {
@@ -123,7 +122,7 @@ async function sendBatch(
   let lastError: string | undefined;
 
   for (const contact of contacts) {
-    const result = await sendOne(contact.phone, messageText, credentials.phoneNumberId, credentials.accessToken);
+    const result = await sendOne(contact.phone, payload, credentials.phoneNumberId, credentials.accessToken);
     await recordMessage(ctx, contact, result);
     if (result.ok) sent += 1;
     else {
@@ -157,7 +156,8 @@ export async function enqueueAndProcess(params: {
   contacts: BatchContact[];
   templateId: string;
   templateName?: string;
-  messageText: string;
+  payload: Record<string, unknown>;
+  preview: string;
 }): Promise<{ sent: number; failed: number; paused: boolean }> {
   const settings = await getQueueSettings(params.clientId);
   if (settings.paused) {
@@ -183,7 +183,7 @@ export async function enqueueAndProcess(params: {
         name: params.name,
         contactIds: batchContacts.map((c) => c.id),
         templateId: params.templateId,
-        messageText: params.messageText,
+        messageText: params.preview,
         batchSize: batchContacts.length,
         maxAttempts: settings.maxRetryAttempts,
         status: "processing",
@@ -192,14 +192,14 @@ export async function enqueueAndProcess(params: {
       },
     });
 
-    const result = await sendBatch(batchContacts, params.messageText, settings.messagesPerMinute, {
+    const result = await sendBatch(batchContacts, params.payload, settings.messagesPerMinute, {
       clientId: params.clientId,
       queueJobId: job.id,
       campaignId: params.campaignId,
       campaignName: params.name,
       templateId: params.templateId,
       templateName: params.templateName,
-      preview: params.messageText.slice(0, 200),
+      preview: params.preview,
     });
     totalSent += result.sent;
     totalFailed += result.failed;
@@ -219,10 +219,16 @@ export async function enqueueAndProcess(params: {
   return { sent: totalSent, failed: totalFailed, paused: false };
 }
 
-/** Re-sends a failed job's contacts (same message, same batch) — used by
- * the Queue page's "Retry" button. Updates the same MessageRecord rows
- * rather than creating duplicates. */
-export async function retryQueueJob(jobId: string, clientId: string): Promise<boolean> {
+/** Re-sends a failed job's contacts — used by the Queue page's "Retry"
+ * button. Re-fetches the template fresh (photo/buttons/footer aren't
+ * stored on the QueueJob row itself, only a text preview is) and rebuilds
+ * the same message shape lib/whatsappMessage.ts would build for a new send;
+ * if the template was deleted since, falls back to plain text from the
+ * stored preview rather than failing outright. `origin` (this app's own
+ * base URL) is needed to turn a relative media path back into an absolute
+ * URL Meta can fetch — same as the original send. Updates the same
+ * MessageRecord rows rather than creating duplicates. */
+export async function retryQueueJob(jobId: string, clientId: string, origin: string): Promise<boolean> {
   const job = await prisma.queueJob.findFirst({ where: { id: jobId, clientId } });
   if (!job) return false;
 
@@ -232,6 +238,13 @@ export async function retryQueueJob(jobId: string, clientId: string): Promise<bo
   const contacts = await prisma.contact.findMany({
     where: { id: { in: job.contactIds }, clientId },
   });
+
+  const template = await prisma.customTemplate.findFirst({
+    where: { id: job.templateId, clientId },
+  });
+  const { payload, preview } = template
+    ? buildOutboundMessage(template as unknown as TemplateLike, origin)
+    : { payload: { type: "text", text: { body: job.messageText } }, preview: job.messageText };
 
   await prisma.queueJob.update({
     where: { id: jobId },
@@ -244,7 +257,7 @@ export async function retryQueueJob(jobId: string, clientId: string): Promise<bo
       phone: c.phone,
       name: c.name,
     })),
-    job.messageText,
+    payload,
     settings.messagesPerMinute,
     {
       clientId,
@@ -252,7 +265,7 @@ export async function retryQueueJob(jobId: string, clientId: string): Promise<bo
       campaignId: job.campaignId,
       campaignName: job.name,
       templateId: job.templateId,
-      preview: job.messageText.slice(0, 200),
+      preview,
     }
   );
 

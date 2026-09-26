@@ -321,6 +321,54 @@ everywhere at once, with no per-feature changes needed. If the stored token can'
 (e.g. `CREDENTIALS_ENCRYPTION_KEY` changed since they connected), sends quietly fall back to the
 shared number rather than hard-failing.
 
+## Sending a real photo/button/footer from a template (real)
+
+Previously, Bulk Sender and Campaigns always sent a Custom Template as
+plain text — its media, footer, and buttons were silently dropped, even
+though the template builder itself saved them correctly. Fixed:
+
+- `lib/whatsappMessage.ts`'s `buildOutboundMessage()` is the one place that
+  decides what a template's real Meta API payload looks like — a plain
+  `text` message, a media message (`image`/`document`) with the body as its
+  caption, or an `interactive` `cta_url` message when a URL/WhatsApp-kind
+  button is present (with a media or text header, and a footer, when set).
+  `lib/queueProcessor.ts`, `app/api/bulk-send/route.ts`, and
+  `lib/campaignRunner.ts` all now go through it, so Bulk Sender, Campaigns,
+  and a campaign's automatic retry all send the same real shape.
+- **Real, hard limits of WhatsApp's free-form messaging** (not something
+  this app can work around): only **one** button can actually be sent
+  (`cta_url` supports exactly one), so only the *first* url/whatsapp-kind
+  button on a template is used — extra buttons are dropped. **Call
+  (phone-number) buttons have no free-form equivalent at all** — they only
+  work inside a real, Meta-approved Message Template, so they're always
+  dropped here. A header and footer with **no** media and **no** button
+  have nowhere to render either, so they're folded into the body text
+  instead of vanishing silently.
+- `lib/queueProcessor.ts`'s `retryQueueJob()` now re-fetches the template
+  fresh from the database and rebuilds this same payload (a `QueueJob` row
+  only stores a text preview, not the full media/button shape) — falling
+  back to plain text from that preview if the template was deleted since.
+
+## Uploads actually persist on Vercel now (real)
+
+Template media and Inbox photo/document uploads previously wrote straight
+to local disk (`public/uploads/...`) — fine for `npm run dev` or a
+self-hosted server, but **silently broken on Vercel**, whose filesystem is
+read-only/ephemeral per request. `lib/fileStorage.ts`'s `storeFile()` is
+now the one place every upload goes through: it uploads to **Vercel Blob**
+when `BLOB_READ_WRITE_TOKEN` is set (auto-injected once you enable Blob
+Storage for the project in the Vercel dashboard — Storage → Create Database
+→ Blob), and only falls back to local disk when that isn't configured.
+`app/api/templates/media/route.ts` and `app/api/whatsapp/upload/route.ts`
+both use it now.
+
+Separately, `lib/appUrl.ts`'s `getAppOrigin()` resolves this app's own
+public URL for turning a relative media path into an absolute one Meta can
+fetch — needed specifically for the campaign scheduler's background timer,
+which (unlike an API route) has no incoming request to read an origin from.
+It prefers `APP_URL` from `.env`, then Vercel's own auto-provided
+`VERCEL_URL`, then `localhost` for local dev.
+
 ## Inbox — real ticks, real sending, AND real receiving
 
 - Text replies (`/api/whatsapp/send-test`) and photo/document sends

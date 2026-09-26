@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireClient } from "@/lib/apiGuards";
 import { fillTemplate } from "@/lib/utils";
 import { enqueueAndProcess } from "@/lib/queueProcessor";
+import { buildOutboundMessage } from "@/lib/whatsappMessage";
 
 /**
  * ⚠️ Same demo/testing scope as /api/whatsapp/send-test — one shared test
@@ -60,13 +61,17 @@ export async function POST(request: Request) {
     where: { id: { in: contactIds }, clientId: auth.clientId, consent: "opted_in" },
   });
 
-  const messageText = [
-    template.header ? fillTemplate(template.header, variables) : null,
-    fillTemplate(template.body, variables),
-    template.footer ? fillTemplate(template.footer, variables) : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const { payload, preview } = buildOutboundMessage(
+    {
+      header: template.header ? fillTemplate(template.header, variables) : null,
+      body: fillTemplate(template.body, variables),
+      footer: template.footer ? fillTemplate(template.footer, variables) : null,
+      mediaKind: template.mediaKind,
+      mediaUrl: template.mediaUrl,
+      buttons: template.buttons,
+    },
+    new URL(request.url).origin
+  );
 
   const result = await enqueueAndProcess({
     clientId: auth.clientId,
@@ -78,7 +83,8 @@ export async function POST(request: Request) {
     })),
     templateId: template.id,
     templateName: template.name,
-    messageText,
+    payload,
+    preview,
   });
 
   if (result.paused) {

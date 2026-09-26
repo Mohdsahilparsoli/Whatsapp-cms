@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { requireClient } from "@/lib/apiGuards";
+import { storeFile } from "@/lib/fileStorage";
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10MB
 
@@ -22,13 +22,10 @@ const ALLOWED_TYPES: Record<string, { mimeTypes: string[]; extensions: string[] 
 };
 
 /**
- * Files are written straight to this server's local disk, under
- * public/uploads/templates/<clientId>/ — which Next.js then serves as a
- * static file at the returned `url`. There is no cloud storage (S3, etc.)
- * here on purpose, to keep the local-Postgres-only setup simple. This means
- * uploads only work on a persistent, self-hosted server (fine for
- * `npm run dev` / `npm start`) — not on a stateless/serverless host like
- * Vercel, where the filesystem doesn't persist between requests.
+ * Uploads go to Vercel Blob when this app is deployed there (or anywhere
+ * BLOB_READ_WRITE_TOKEN is set) so they actually persist and are fetchable
+ * by Meta — see lib/fileStorage.ts. Falls back to local disk for
+ * `npm run dev` / a self-hosted server without Blob configured.
  */
 export async function POST(request: Request) {
   const auth = await requireClient();
@@ -70,12 +67,15 @@ export async function POST(request: Request) {
 
   const safeExt = extOk ? ext : allowed.extensions[0];
   const fileName = `${randomUUID()}${safeExt}`;
-  const dir = path.join(process.cwd(), "public", "uploads", "templates", auth.clientId);
-  await mkdir(dir, { recursive: true });
-
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(path.join(dir, fileName), buffer);
 
-  const url = `/uploads/templates/${auth.clientId}/${fileName}`;
-  return NextResponse.json({ url, fileName: file.name });
+  let stored;
+  try {
+    stored = await storeFile(buffer, ["templates", auth.clientId, fileName], file.type || "application/octet-stream");
+  } catch (err) {
+    console.error("templates/media: storeFile failed", err);
+    return NextResponse.json({ error: "Could not save the file. Please try again." }, { status: 500 });
+  }
+
+  return NextResponse.json({ url: stored.url, fileName: file.name });
 }

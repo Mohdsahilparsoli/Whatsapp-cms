@@ -5,7 +5,7 @@ import { retryQueueJob } from "@/lib/queueProcessor";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function POST(_request: Request, { params }: Params) {
+export async function POST(request: Request, { params }: Params) {
   const auth = await requireClient();
   if (auth instanceof NextResponse) return auth;
 
@@ -23,7 +23,7 @@ export async function POST(_request: Request, { params }: Params) {
     );
   }
 
-  const ok = await retryQueueJob(id, auth.clientId);
+  const ok = await retryQueueJob(id, auth.clientId, new URL(request.url).origin);
   if (!ok) {
     return NextResponse.json(
       { error: "Could not retry — the queue may be paused." },

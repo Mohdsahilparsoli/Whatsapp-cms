@@ -2,6 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { fillTemplate } from "@/lib/utils";
 import { enqueueAndProcess } from "@/lib/queueProcessor";
+import { buildOutboundMessage } from "@/lib/whatsappMessage";
+import { getAppOrigin } from "@/lib/appUrl";
 
 /**
  * Runs one campaign: fetches its real audience and template, then sends it
@@ -41,13 +43,17 @@ export async function runCampaign(campaignId: string): Promise<void> {
     data: { status: "sending", audienceSize: contacts.length },
   });
 
-  const messageText = [
-    template.header ? fillTemplate(template.header, template.variables) : null,
-    fillTemplate(template.body, template.variables),
-    template.footer ? fillTemplate(template.footer, template.variables) : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const { payload, preview } = buildOutboundMessage(
+    {
+      header: template.header ? fillTemplate(template.header, template.variables) : null,
+      body: fillTemplate(template.body, template.variables),
+      footer: template.footer ? fillTemplate(template.footer, template.variables) : null,
+      mediaKind: template.mediaKind,
+      mediaUrl: template.mediaUrl,
+      buttons: template.buttons,
+    },
+    getAppOrigin()
+  );
 
   const result = await enqueueAndProcess({
     clientId: campaign.clientId,
@@ -60,7 +66,8 @@ export async function runCampaign(campaignId: string): Promise<void> {
     })),
     templateId: template.id,
     templateName: template.name,
-    messageText,
+    payload,
+    preview,
   });
 
   if (result.paused) {

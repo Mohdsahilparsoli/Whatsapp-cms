@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { requireClient } from "@/lib/apiGuards";
+import { storeFile } from "@/lib/fileStorage";
 
-const MAX_BYTES = 16 * 1024 * 1024; // WhatsApp's own document limit is 100MB, but keep this modest for a local-disk demo setup
+const MAX_BYTES = 16 * 1024 * 1024; // WhatsApp's own document limit is 100MB, but keep this modest
 
 const ALLOWED: Record<string, { mimeTypes: string[]; extensions: string[] }> = {
   image: {
@@ -25,14 +25,15 @@ const ALLOWED: Record<string, { mimeTypes: string[]; extensions: string[] }> = {
 };
 
 /**
- * Same local-disk-only tradeoff as /api/templates/media: files are written
- * under public/uploads/inbox/<clientId>/, which only persists on a
- * self-hosted server (not serverless). Additionally — unlike template
- * media, which is only ever *displayed* in this app — this file's URL gets
- * sent to Meta for Meta's servers to fetch, so it only actually works if
- * this app is reachable on a public URL (same requirement as the delivery
- * webhook; ngrok for local dev). On localhost, the upload succeeds but
- * Meta's send will fail to fetch the media — see send-media/route.ts.
+ * Uploads go to Vercel Blob when deployed there (or anywhere
+ * BLOB_READ_WRITE_TOKEN is set), so they actually persist — see
+ * lib/fileStorage.ts. Falls back to local disk for local dev.
+ *
+ * Unlike template media, which is only ever *displayed* in this app, this
+ * file's URL gets sent to Meta for Meta's own servers to fetch — so it only
+ * actually works if that URL is one Meta can reach: Vercel Blob URLs always
+ * qualify; a local-disk URL only works if this app itself is on a public
+ * URL too (ngrok for local dev). See send-media/route.ts.
  */
 export async function POST(request: Request) {
   const auth = await requireClient();
@@ -71,12 +72,15 @@ export async function POST(request: Request) {
   }
 
   const fileName = `${randomUUID()}${ext}`;
-  const dir = path.join(process.cwd(), "public", "uploads", "inbox", auth.clientId);
-  await mkdir(dir, { recursive: true });
-
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(path.join(dir, fileName), buffer);
 
-  const url = `/uploads/inbox/${auth.clientId}/${fileName}`;
-  return NextResponse.json({ url, fileName: file.name, kind });
+  let stored;
+  try {
+    stored = await storeFile(buffer, ["inbox", auth.clientId, fileName], file.type || "application/octet-stream");
+  } catch (err) {
+    console.error("whatsapp/upload: storeFile failed", err);
+    return NextResponse.json({ error: "Could not save the file. Please try again." }, { status: 500 });
+  }
+
+  return NextResponse.json({ url: stored.url, fileName: file.name, kind });
 }
