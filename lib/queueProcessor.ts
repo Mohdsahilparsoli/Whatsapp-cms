@@ -3,11 +3,38 @@ import { prisma } from "@/lib/db";
 import { getQueueSettings } from "@/lib/queueSettings";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
+import { personalizeVariables } from "@/lib/personalize";
+import { fillTemplate } from "@/lib/utils";
 
 interface BatchContact {
   id: string;
   phone: string;
   name?: string | null;
+}
+
+/** Builds this one contact's actual message — {{1}} auto-fills with their
+ * own name (see lib/personalize.ts), everything else in `sharedVariables`
+ * is the same for every contact in this send. Exported so bulk-send and
+ * campaign sends build the exact same shape this module sends with,
+ * instead of each re-implementing the header/body/footer/variable wiring. */
+export function buildPayloadForContact(
+  template: TemplateLike,
+  sharedVariables: string[],
+  contact: { name?: string | null },
+  origin: string
+): Record<string, unknown> {
+  const values = personalizeVariables(sharedVariables, contact);
+  return buildOutboundMessage(
+    {
+      header: template.header ? fillTemplate(template.header, values) : null,
+      body: fillTemplate(template.body, values),
+      footer: template.footer ? fillTemplate(template.footer, values) : null,
+      mediaKind: template.mediaKind,
+      mediaUrl: template.mediaUrl,
+      buttons: template.buttons,
+    },
+    origin
+  ).payload;
 }
 
 interface SendContext {
@@ -101,7 +128,7 @@ async function recordMessage(
  * shared test number (see lib/whatsappCredentials.ts). */
 async function sendBatch(
   contacts: BatchContact[],
-  payload: Record<string, unknown>,
+  buildPayload: (contact: BatchContact) => Record<string, unknown>,
   messagesPerMinute: number,
   ctx: SendContext
 ) {
@@ -122,6 +149,9 @@ async function sendBatch(
   let lastError: string | undefined;
 
   for (const contact of contacts) {
+    // Built per contact — {{1}} is that contact's own name, not a value
+    // shared across the whole batch (see buildPayloadForContact above).
+    const payload = buildPayload(contact);
     const result = await sendOne(contact.phone, payload, credentials.phoneNumberId, credentials.accessToken);
     await recordMessage(ctx, contact, result);
     if (result.ok) sent += 1;
@@ -156,7 +186,10 @@ export async function enqueueAndProcess(params: {
   contacts: BatchContact[];
   templateId: string;
   templateName?: string;
-  payload: Record<string, unknown>;
+  /** Builds the actual message for one contact — see buildPayloadForContact,
+   * which every caller should use so {{1}} auto-fills with that contact's
+   * own name instead of one shared value for the whole send. */
+  buildPayload: (contact: BatchContact) => Record<string, unknown>;
   preview: string;
 }): Promise<{ sent: number; failed: number; paused: boolean }> {
   const settings = await getQueueSettings(params.clientId);
@@ -192,7 +225,7 @@ export async function enqueueAndProcess(params: {
       },
     });
 
-    const result = await sendBatch(batchContacts, params.payload, settings.messagesPerMinute, {
+    const result = await sendBatch(batchContacts, params.buildPayload, settings.messagesPerMinute, {
       clientId: params.clientId,
       queueJobId: job.id,
       campaignId: params.campaignId,
@@ -242,9 +275,16 @@ export async function retryQueueJob(jobId: string, clientId: string, origin: str
   const template = await prisma.customTemplate.findFirst({
     where: { id: job.templateId, clientId },
   });
-  const { payload, preview } = template
-    ? buildOutboundMessage(template as unknown as TemplateLike, origin)
-    : { payload: { type: "text", text: { body: job.messageText } }, preview: job.messageText };
+  // Same per-contact personalization as a fresh send (see
+  // buildPayloadForContact) — {{1}} fills with each contact's own name on
+  // retry too, not the literal "{{1}}" or one shared value. We don't have
+  // the original send's other ({{2}}, {{3}}, ...) shared values stored on
+  // the QueueJob row, so those fall back to blank on retry, same as they
+  // would if left empty on the original send.
+  const buildPayload = template
+    ? (contact: { name?: string | null }) => buildPayloadForContact(template as unknown as TemplateLike, [], contact, origin)
+    : () => ({ type: "text", text: { body: job.messageText } });
+  const preview = job.messageText;
 
   await prisma.queueJob.update({
     where: { id: jobId },
@@ -257,7 +297,7 @@ export async function retryQueueJob(jobId: string, clientId: string, origin: str
       phone: c.phone,
       name: c.name,
     })),
-    payload,
+    buildPayload,
     settings.messagesPerMinute,
     {
       clientId,

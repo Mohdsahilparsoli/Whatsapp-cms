@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireClient } from "@/lib/apiGuards";
 import { fillTemplate } from "@/lib/utils";
-import { enqueueAndProcess } from "@/lib/queueProcessor";
-import { buildOutboundMessage } from "@/lib/whatsappMessage";
+import { enqueueAndProcess, buildPayloadForContact } from "@/lib/queueProcessor";
+import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
+import { personalizeVariables } from "@/lib/personalize";
 
 /**
  * ⚠️ Same demo/testing scope as /api/whatsapp/send-test — one shared test
@@ -61,16 +62,22 @@ export async function POST(request: Request) {
     where: { id: { in: contactIds }, clientId: auth.clientId, consent: "opted_in" },
   });
 
-  const { payload, preview } = buildOutboundMessage(
+  const origin = new URL(request.url).origin;
+
+  // {{1}} always auto-fills with each contact's own name (see
+  // lib/personalize.ts) — "there" here is just for the stored preview
+  // text, since the real send builds a fresh, personalized payload per
+  // contact below (buildPayloadForContact), not this one shared copy.
+  const { preview } = buildOutboundMessage(
     {
-      header: template.header ? fillTemplate(template.header, variables) : null,
-      body: fillTemplate(template.body, variables),
-      footer: template.footer ? fillTemplate(template.footer, variables) : null,
+      header: template.header ? fillTemplate(template.header, personalizeVariables(variables, {})) : null,
+      body: fillTemplate(template.body, personalizeVariables(variables, {})),
+      footer: template.footer ? fillTemplate(template.footer, personalizeVariables(variables, {})) : null,
       mediaKind: template.mediaKind,
       mediaUrl: template.mediaUrl,
       buttons: template.buttons,
     },
-    new URL(request.url).origin
+    origin
   );
 
   const result = await enqueueAndProcess({
@@ -83,7 +90,7 @@ export async function POST(request: Request) {
     })),
     templateId: template.id,
     templateName: template.name,
-    payload,
+    buildPayload: (contact) => buildPayloadForContact(template as unknown as TemplateLike, variables, contact, origin),
     preview,
   });
 

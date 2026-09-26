@@ -1,8 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { fillTemplate } from "@/lib/utils";
-import { enqueueAndProcess } from "@/lib/queueProcessor";
-import { buildOutboundMessage } from "@/lib/whatsappMessage";
+import { enqueueAndProcess, buildPayloadForContact } from "@/lib/queueProcessor";
+import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
+import { personalizeVariables } from "@/lib/personalize";
 import { getAppOrigin } from "@/lib/appUrl";
 
 /**
@@ -43,16 +44,24 @@ export async function runCampaign(campaignId: string): Promise<void> {
     data: { status: "sending", audienceSize: contacts.length },
   });
 
-  const { payload, preview } = buildOutboundMessage(
+  const origin = getAppOrigin();
+
+  // Campaigns don't currently collect any shared ({{2}}, {{3}}, ...) values
+  // of their own — {{1}} still auto-fills per contact with their own name
+  // (see lib/personalize.ts). Previously this used template.variables (the
+  // *labels*, e.g. "Name") as if they were the fill-in values, which sent
+  // the literal word "Name" to every contact instead of each person's real
+  // name or an actual value — that's fixed here.
+  const { preview } = buildOutboundMessage(
     {
-      header: template.header ? fillTemplate(template.header, template.variables) : null,
-      body: fillTemplate(template.body, template.variables),
-      footer: template.footer ? fillTemplate(template.footer, template.variables) : null,
+      header: template.header ? fillTemplate(template.header, personalizeVariables([], {})) : null,
+      body: fillTemplate(template.body, personalizeVariables([], {})),
+      footer: template.footer ? fillTemplate(template.footer, personalizeVariables([], {})) : null,
       mediaKind: template.mediaKind,
       mediaUrl: template.mediaUrl,
       buttons: template.buttons,
     },
-    getAppOrigin()
+    origin
   );
 
   const result = await enqueueAndProcess({
@@ -66,7 +75,7 @@ export async function runCampaign(campaignId: string): Promise<void> {
     })),
     templateId: template.id,
     templateName: template.name,
-    payload,
+    buildPayload: (contact) => buildPayloadForContact(template as unknown as TemplateLike, [], contact, origin),
     preview,
   });
 

@@ -14,6 +14,7 @@ import TemplatePreview from "@/components/templates/TemplatePreview";
 import { useCustomTemplates } from "@/lib/customTemplates";
 import { getPageMeta } from "@/lib/nav";
 import { cn, formatNumber } from "@/lib/utils";
+import { personalizeVariables } from "@/lib/personalize";
 import type { Contact } from "@/types";
 
 interface SendResult {
@@ -73,6 +74,14 @@ export default function BulkSenderPage() {
   ).length;
 
   const template = templateOptions.find((t) => t.id === templateId) ?? templateOptions[0] ?? null;
+
+  // Shows what the real send actually does — {{1}} auto-fills with a real
+  // recipient's name (falling back to "there" if none are opted in yet),
+  // not the raw "{{1}}" placeholder or a manually-typed sample.
+  const previewValues = useMemo(
+    () => personalizeVariables(variables, { name: audience[0]?.name ?? null }),
+    [variables, audience]
+  );
 
   function openReview() {
     setSendError(null);
@@ -213,21 +222,35 @@ export default function BulkSenderPage() {
 
                   {template && template.variables.length > 0 && (
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {template.variables.map((variable, index) => (
-                        <FormField
-                          key={`${template.id}-${index}`}
-                          label={`{{${index + 1}}} — ${variable || `Value ${index + 1}`}`}
-                          value={variables[index] ?? ""}
-                          onChange={(value) =>
-                            setVariables((prev) => {
-                              const next = [...prev];
-                              next[index] = value;
-                              return next;
-                            })
-                          }
-                          placeholder="Same value sent to everyone"
-                        />
-                      ))}
+                      {template.variables.map((variable, index) =>
+                        index === 0 ? (
+                          // {{1}} is always the recipient's own name — auto-filled
+                          // per contact at send time (see lib/personalize.ts), not
+                          // one value typed here and sent to everyone.
+                          <FormField
+                            key={`${template.id}-${index}`}
+                            label={`{{1}} — ${variable || "Name"}`}
+                            value="Each contact's own name"
+                            onChange={() => {}}
+                            disabled
+                            hint="Auto-filled per recipient from Contacts — not a value you set here."
+                          />
+                        ) : (
+                          <FormField
+                            key={`${template.id}-${index}`}
+                            label={`{{${index + 1}}} — ${variable || `Value ${index + 1}`}`}
+                            value={variables[index] ?? ""}
+                            onChange={(value) =>
+                              setVariables((prev) => {
+                                const next = [...prev];
+                                next[index] = value;
+                                return next;
+                              })
+                            }
+                            placeholder="Same value sent to everyone"
+                          />
+                        )
+                      )}
                     </div>
                   )}
                 </>
@@ -248,7 +271,7 @@ export default function BulkSenderPage() {
                   footer={template.footer}
                   media={template.media}
                   buttons={template.buttons}
-                  values={variables}
+                  values={previewValues}
                   emptyHint="This template has no message body."
                 />
 
@@ -311,7 +334,7 @@ export default function BulkSenderPage() {
               footer={template.footer}
               media={template.media}
               buttons={template.buttons}
-              values={variables}
+              values={previewValues}
             />
 
             {sendError && (
