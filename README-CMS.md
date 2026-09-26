@@ -389,10 +389,20 @@ It prefers `APP_URL` from `.env`, then Vercel's own auto-provided
   3. A message to a phone number **nobody has connected yet** has no client
      to attribute it to and is dropped — expected, not a bug, until that
      number is connected in WhatsApp Account Setup.
-  - Incoming image/document messages are recorded with any caption/filename
-    Meta sends, but the actual file isn't downloaded/re-hosted yet — shown
-    as a placeholder ("📷 Photo received (not downloaded)"), a reasonable
-    follow-up if you need it.
+  - **Incoming image/document files are now actually downloaded and shown**,
+    not just a placeholder. Meta's webhook only gives a media `id`, so
+    `downloadAndStoreIncomingMedia()` in the webhook route does the real
+    2-step Meta Media API fetch (GET the media id for a short-lived signed
+    URL → GET that URL for the bytes, both authenticated with the *same
+    client's* WhatsApp access token via `getWhatsAppCredentials()`), then
+    re-hosts it through `storeFile()` (Vercel Blob in production, local disk
+    in dev — same storage helper templates/Inbox uploads already use) and
+    saves the resulting `mediaUrl`/`mediaFileName` on the `ChatMessage`. The
+    Inbox already knew how to render `mediaUrl` for any message regardless
+    of direction, so incoming photos/documents show up exactly like sent
+    ones. If the download fails for any reason (token issue, expired media,
+    network), it falls back to the old "received (not downloaded)"
+    placeholder instead of losing the message.
 - Ticks (✓ sent, ✓✓ delivered, ✓✓ blue read) now update by simply re-polling
   the conversation's real messages every 4s — the webhook's status handler
   updates the matching outbound `ChatMessage.status` directly by

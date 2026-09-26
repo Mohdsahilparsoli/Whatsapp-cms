@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { storeFile } from "@/lib/fileStorage";
+import { randomUUID } from "node:crypto";
 
 /**
  * Meta's one-time verification handshake when you save this URL as the
@@ -104,6 +107,71 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
+const MIME_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "application/pdf": ".pdf",
+  "application/msword": ".doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.ms-excel": ".xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "text/plain": ".txt",
+};
+
+/**
+ * Real Meta Media API download for an inbound photo/document.
+ *
+ * Meta only ever gives us a media `id` in the webhook payload, never a
+ * fetchable URL. Turning that into an actual file takes two authenticated
+ * requests, both using the SAME client's WhatsApp access token that
+ * received the message (Meta scopes media by the app/token that owns it):
+ *   1. GET /{media-id} → { url, mime_type, ... } — a short-lived signed URL.
+ *   2. GET that url (still with our Bearer token) → the raw file bytes.
+ * The bytes are then re-hosted via storeFile() (Vercel Blob in production,
+ * local disk in dev) so the Inbox can display/link it like any other file
+ * we serve — Meta's signed URL expires, so we never store that directly.
+ *
+ * Returns null (rather than throwing) on any failure — a media message
+ * that fails to download still gets recorded as a placeholder, exactly as
+ * before this feature existed, instead of dropping the whole webhook.
+ */
+async function downloadAndStoreIncomingMedia(
+  clientId: string,
+  mediaId: string,
+  fileNameHint: string | undefined,
+  kind: "image" | "document"
+): Promise<{ url: string; fileName: string } | null> {
+  try {
+    const credentials = await getWhatsAppCredentials(clientId);
+    if (!credentials) return null;
+
+    const metaRes = await fetch(`https://graph.facebook.com/v25.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${credentials.accessToken}` },
+    });
+    if (!metaRes.ok) return null;
+    const meta: { url?: string; mime_type?: string } = await metaRes.json();
+    if (!meta.url) return null;
+
+    const fileRes = await fetch(meta.url, {
+      headers: { Authorization: `Bearer ${credentials.accessToken}` },
+    });
+    if (!fileRes.ok) return null;
+    const buffer = Buffer.from(await fileRes.arrayBuffer());
+
+    const mimeType = meta.mime_type?.split(";")[0]?.trim() ?? "application/octet-stream";
+    const extension = MIME_EXTENSIONS[mimeType] ?? (kind === "image" ? ".jpg" : "");
+    const fileName =
+      fileNameHint && fileNameHint.trim().length > 0 ? fileNameHint : `${kind}-${randomUUID()}${extension}`;
+    const storageKey = `${randomUUID()}${extension}`;
+
+    const stored = await storeFile(buffer, ["inbox", clientId, storageKey], mimeType);
+    return { url: stored.url, fileName };
+  } catch {
+    return null;
+  }
+}
+
 async function resolveClientId(phoneNumberId: string): Promise<string | null> {
   const account = await prisma.whatsAppAccount.findFirst({
     where: { phoneNumberId, connected: true },
@@ -118,21 +186,42 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
 
   let text = "";
   let type: "text" | "image" | "document" = "text";
+  let mediaUrl: string | null = null;
+  let mediaFileName: string | null = null;
+
   if (message.type === "text") {
     text = message.text?.body ?? "";
   } else if (message.type === "image") {
     type = "image";
     text = message.image?.caption ?? "";
+    if (message.image?.id) {
+      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.image.id, undefined, "image");
+      if (downloaded) {
+        mediaUrl = downloaded.url;
+        mediaFileName = downloaded.fileName;
+      }
+    }
   } else if (message.type === "document") {
     type = "document";
     text = message.document?.caption ?? message.document?.filename ?? "";
+    if (message.document?.id) {
+      const downloaded = await downloadAndStoreIncomingMedia(
+        clientId,
+        message.document.id,
+        message.document.filename,
+        "document"
+      );
+      if (downloaded) {
+        mediaUrl = downloaded.url;
+        mediaFileName = downloaded.fileName;
+      }
+    }
   } else {
     text = `[Unsupported message type: ${message.type}]`;
   }
-  // Note: image/document messages arrive as a Meta media `id`, not a
-  // fetchable URL — actually downloading and re-hosting that media is not
-  // implemented yet, so incoming media shows as a placeholder with any
-  // caption/filename Meta sent, not the file itself.
+  // If the download failed for any reason (token issue, network, media
+  // expired), mediaUrl stays null and the Inbox falls back to its existing
+  // "received (not downloaded)" placeholder — same behavior as before.
 
   const conversation = await prisma.conversation.upsert({
     where: { clientId_contactPhone: { clientId, contactPhone: phone } },
@@ -157,6 +246,8 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
       direction: "inbound",
       type,
       text,
+      mediaUrl,
+      mediaFileName,
       whatsappMessageId: message.id,
       status: "sent",
       createdAt: when,
