@@ -144,19 +144,35 @@ async function downloadAndStoreIncomingMedia(
 ): Promise<{ url: string; fileName: string } | null> {
   try {
     const credentials = await getWhatsAppCredentials(clientId);
-    if (!credentials) return null;
+    if (!credentials) {
+      console.error(`[incoming-media] no WhatsApp credentials found for client ${clientId}`);
+      return null;
+    }
 
     const metaRes = await fetch(`https://graph.facebook.com/v25.0/${mediaId}`, {
       headers: { Authorization: `Bearer ${credentials.accessToken}` },
     });
-    if (!metaRes.ok) return null;
+    if (!metaRes.ok) {
+      console.error(
+        `[incoming-media] media metadata fetch failed: ${metaRes.status} ${metaRes.statusText} — ${await metaRes
+          .text()
+          .catch(() => "")}`
+      );
+      return null;
+    }
     const meta: { url?: string; mime_type?: string } = await metaRes.json();
-    if (!meta.url) return null;
+    if (!meta.url) {
+      console.error("[incoming-media] media metadata response had no url", meta);
+      return null;
+    }
 
     const fileRes = await fetch(meta.url, {
       headers: { Authorization: `Bearer ${credentials.accessToken}` },
     });
-    if (!fileRes.ok) return null;
+    if (!fileRes.ok) {
+      console.error(`[incoming-media] file download failed: ${fileRes.status} ${fileRes.statusText}`);
+      return null;
+    }
     const buffer = Buffer.from(await fileRes.arrayBuffer());
 
     const mimeType = meta.mime_type?.split(";")[0]?.trim() ?? "application/octet-stream";
@@ -166,8 +182,10 @@ async function downloadAndStoreIncomingMedia(
     const storageKey = `${randomUUID()}${extension}`;
 
     const stored = await storeFile(buffer, ["inbox", clientId, storageKey], mimeType);
+    console.log(`[incoming-media] stored ${kind} for client ${clientId} at ${stored.url}`);
     return { url: stored.url, fileName };
-  } catch {
+  } catch (err) {
+    console.error("[incoming-media] unexpected error downloading/storing media:", err);
     return null;
   }
 }
