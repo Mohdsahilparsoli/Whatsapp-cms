@@ -35,6 +35,25 @@ function asButtons(value: unknown): TemplateButtonLike[] {
 }
 
 /**
+ * Meta's real hard limits for an "interactive" message's text fields — this
+ * is not our own house style, it's what the Graph API itself enforces and
+ * rejects with (#131009) "Parameter value is not valid" if exceeded. We hit
+ * this for real with a 62-character footer ("...Reply STOP to opt out").
+ * Truncating here is a last-resort safety net so a too-long field fails
+ * soft (message still sends, just slightly shortened) instead of the whole
+ * send failing outright — the real fix is keeping header/footer short at
+ * template-authoring time (see TemplateBuilder's char counters).
+ */
+const INTERACTIVE_HEADER_MAX = 60;
+const INTERACTIVE_FOOTER_MAX = 60;
+const INTERACTIVE_BODY_MAX = 1024;
+const BUTTON_DISPLAY_TEXT_MAX = 20;
+
+function clip(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max) : text;
+}
+
+/**
  * WhatsApp's free-form (non-template) messaging only supports ONE button,
  * via an "interactive" cta_url message — not the up-to-3-buttons a Custom
  * Template can hold, and not a text+media header together (only one header
@@ -63,7 +82,7 @@ export function buildOutboundMessage(template: TemplateLike, origin: string): Bu
     const header = hasMedia
       ? { type: mediaType, [mediaType]: { link: absoluteMediaUrl } }
       : template.header
-        ? { type: "text", text: template.header }
+        ? { type: "text", text: clip(template.header, INTERACTIVE_HEADER_MAX) }
         : undefined;
     return {
       payload: {
@@ -71,11 +90,14 @@ export function buildOutboundMessage(template: TemplateLike, origin: string): Bu
         interactive: {
           type: "cta_url",
           ...(header ? { header } : {}),
-          body: { text: template.body },
-          ...(template.footer ? { footer: { text: template.footer } } : {}),
+          body: { text: clip(template.body, INTERACTIVE_BODY_MAX) },
+          ...(template.footer ? { footer: { text: clip(template.footer, INTERACTIVE_FOOTER_MAX) } } : {}),
           action: {
             name: "cta_url",
-            parameters: { display_text: ctaButton.label.slice(0, 20) || "Open", url: ctaButton.url },
+            parameters: {
+              display_text: clip(ctaButton.label, BUTTON_DISPLAY_TEXT_MAX) || "Open",
+              url: ctaButton.url,
+            },
           },
         },
       },

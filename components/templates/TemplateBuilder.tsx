@@ -50,7 +50,17 @@ const buttonMeta: Record<
   whatsapp: { label: "WhatsApp chat button", icon: MessageCircle, valueLabel: "URL", placeholder: "https://wa.me/919000000000" },
 };
 
-type Errors = Partial<Record<"name" | "body" | "media" | "buttons", string>>;
+type Errors = Partial<Record<"name" | "body" | "media" | "buttons" | "header" | "footer", string>>;
+
+/**
+ * Meta's real hard limit for an interactive message's header/footer text
+ * (60 chars) — a template with a button sends as an "interactive" message
+ * (see lib/whatsappMessage.ts), and Meta rejects the whole send with
+ * (#131009) "Parameter value is not valid" if either field runs over. We
+ * hit this for real with a 62-character footer, so this isn't a style
+ * preference — it's enforced whenever the template ends up with a button.
+ */
+const HEADER_FOOTER_MAX = 60;
 
 /** Drops {{n}} and renumbers the placeholders above it so the body stays valid. */
 function removeVariableFromBody(body: string, index: number) {
@@ -197,6 +207,14 @@ export default function TemplateBuilder({
     if (!draft.body.trim()) next.body = "Write the message body.";
     if (draft.media.kind !== "none" && !draft.media.url.trim())
       next.media = "Upload a file for the attached media.";
+
+    // Only bites once a button is added (that's what turns this into an
+    // "interactive" send — see lib/whatsappMessage.ts) — but we warn
+    // unconditionally so it's caught before a button gets added, not after.
+    if ((draft.header ?? "").length > HEADER_FOOTER_MAX)
+      next.header = `Header is too long for a button message — Meta allows up to ${HEADER_FOOTER_MAX} characters.`;
+    if ((draft.footer ?? "").length > HEADER_FOOTER_MAX)
+      next.footer = `Footer is too long for a button message — Meta allows up to ${HEADER_FOOTER_MAX} characters.`;
 
     const badButton = draft.buttons.find((button) => {
       if (!button.label.trim()) return true;
@@ -362,6 +380,8 @@ export default function TemplateBuilder({
             value={draft.header ?? ""}
             onChange={(value) => patch({ header: value })}
             placeholder="You're invited"
+            error={errors.header}
+            hint={`${(draft.header ?? "").length}/${HEADER_FOOTER_MAX} — only enforced once this template has a button`}
           />
 
           <TextareaField
@@ -379,6 +399,8 @@ export default function TemplateBuilder({
             value={draft.footer ?? ""}
             onChange={(value) => patch({ footer: value })}
             placeholder="Reply STOP to opt out"
+            error={errors.footer}
+            hint={`${(draft.footer ?? "").length}/${HEADER_FOOTER_MAX} — only enforced once this template has a button`}
           />
 
           {/* Variables */}
