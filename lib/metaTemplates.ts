@@ -77,25 +77,60 @@ interface ButtonLike {
   url: string;
 }
 
+/**
+ * Real, best-effort lookup of this client's own WhatsApp number's country
+ * calling code (e.g. "91" for a +91 number) — GET on the phone number id
+ * Meta already gave us, asking only for `display_phone_number` (the same
+ * field WhatsApp Account Setup already shows, e.g. "+91 87006 21883").
+ * Used to auto-complete a Call button's phone number when the person typed
+ * it without a country code, since a business overwhelmingly calls
+ * customers in its own country — nobody should have to type "+91"
+ * themselves. Returns null (no auto-fill) on any failure; the number is
+ * then sent to Meta exactly as typed, which Meta may still reject.
+ */
+async function getDefaultCallingCode(phoneNumberId: string, accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://graph.facebook.com/v25.0/${phoneNumberId}?fields=display_phone_number`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const data: { display_phone_number?: string } = await res.json().catch(() => ({}));
+    const raw = data.display_phone_number;
+    if (!raw) return null;
+    // Meta formats this with a space right after the calling code, e.g.
+    // "+91 87006 21883" — the first token is the calling code.
+    const firstToken = raw.trim().split(/\s+/)[0] ?? "";
+    const digits = firstToken.replace(/\D/g, "");
+    return digits || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Meta's Message Templates API rejects a Call button's phone_number
- * outright ((#192) "is not a valid phone number") if it has spaces, dashes,
- * or parentheses in it — it wants a clean E.164-style string, e.g.
- * "+918700621883", not "+91 87006 21883" (which is exactly what the
- * template builder's Call button field naturally produces since it's
- * free-form text). Strips everything except digits and a leading "+". */
-function sanitizePhoneNumber(raw: string): string {
+ * outright ((#192) "is not a valid phone number") if it's missing a
+ * country code, or has spaces/dashes/parentheses in it. If the person typed
+ * a "+" themselves, that's respected as-is (they may be calling a different
+ * country); otherwise the client's own detected calling code
+ * (`defaultCallingCode`) is prepended automatically. */
+function sanitizePhoneNumber(raw: string, defaultCallingCode: string | null): string {
   const trimmed = raw.trim();
   const digits = trimmed.replace(/\D/g, "");
-  return trimmed.startsWith("+") ? `+${digits}` : digits;
+  if (trimmed.startsWith("+")) return `+${digits}`;
+  if (defaultCallingCode) return `+${defaultCallingCode}${digits}`;
+  return digits;
 }
 
 /** "whatsapp"-kind buttons are also URL-shaped in this app (see
  * lib/whatsappMessage.ts's ctaButton matcher) — both map to Meta's "URL"
  * button type; only "call" maps to "PHONE_NUMBER". */
-function toMetaButtons(buttons: ButtonLike[]) {
+function toMetaButtons(buttons: ButtonLike[], defaultCallingCode: string | null) {
   return buttons.slice(0, 3).map((b) =>
     b.kind === "call"
-      ? { type: "PHONE_NUMBER", text: b.label.slice(0, 20) || "Call", phone_number: sanitizePhoneNumber(b.url) }
+      ? {
+          type: "PHONE_NUMBER",
+          text: b.label.slice(0, 20) || "Call",
+          phone_number: sanitizePhoneNumber(b.url, defaultCallingCode),
+        }
       : { type: "URL", text: b.label.slice(0, 20) || "Open", url: b.url }
   );
 }
@@ -186,7 +221,8 @@ export type BuildComponentsResult =
  * (uploadMediaHandle) to get its header_handle. */
 export async function buildTemplateComponents(
   t: SubmittableTemplate,
-  accessToken: string
+  accessToken: string,
+  defaultCallingCode: string | null
 ): Promise<BuildComponentsResult> {
   const components: Record<string, unknown>[] = [];
 
@@ -230,7 +266,7 @@ export async function buildTemplateComponents(
   }
 
   if (t.buttons.length > 0) {
-    components.push({ type: "BUTTONS", buttons: toMetaButtons(t.buttons) });
+    components.push({ type: "BUTTONS", buttons: toMetaButtons(t.buttons, defaultCallingCode) });
   }
 
   return { ok: true, components };
@@ -265,7 +301,8 @@ export async function submitTemplateToMeta(
   }
 
   const languageCode = toMetaLanguageCode(t.language);
-  const built = await buildTemplateComponents(t, credentials.accessToken);
+  const defaultCallingCode = await getDefaultCallingCode(credentials.phoneNumberId, credentials.accessToken);
+  const built = await buildTemplateComponents(t, credentials.accessToken, defaultCallingCode);
   if (!built.ok) return { ok: false, error: built.error };
   const components = built.components;
 

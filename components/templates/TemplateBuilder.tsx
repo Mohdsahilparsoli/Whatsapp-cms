@@ -46,7 +46,7 @@ const buttonMeta: Record<
   { label: string; icon: React.ComponentType<{ className?: string }>; valueLabel: string; placeholder: string }
 > = {
   url: { label: "Primary button (URL)", icon: ExternalLink, valueLabel: "URL", placeholder: "https://example.com/offer" },
-  call: { label: "Call button", icon: Phone, valueLabel: "Phone number", placeholder: "+91 98110 22331" },
+  call: { label: "Call button", icon: Phone, valueLabel: "Phone number (country code optional — auto-detected)", placeholder: "98110 22331" },
   whatsapp: { label: "WhatsApp chat button", icon: MessageCircle, valueLabel: "URL", placeholder: "https://wa.me/919000000000" },
 };
 
@@ -216,30 +216,18 @@ export default function TemplateBuilder({
     if ((draft.footer ?? "").length > HEADER_FOOTER_MAX)
       next.footer = `Footer is too long for a button message — Meta allows up to ${HEADER_FOOTER_MAX} characters.`;
 
-    // Meta rejects a Call button's phone number outright ((#192) "is not a
-    // valid phone number") without a country code — a plain 10-digit local
-    // number isn't enough, it needs the full "+91..." format. Caught here so
-    // it's flagged before Save, not only after a confusing Meta error.
-    const badCallButton = draft.buttons.find(
-      (button) =>
-        button.kind === "call" &&
-        button.label.trim() &&
-        button.url.trim() &&
-        (!button.url.trim().startsWith("+") || button.url.replace(/\D/g, "").length < 8)
-    );
-    if (badCallButton) {
+    // No country code required here on purpose — at Meta submission time
+    // (lib/metaTemplates.ts), a Call button number typed without one gets
+    // this client's own WhatsApp number's country calling code auto-
+    // prepended, so nobody has to type "+91" etc themselves.
+    const badButton = draft.buttons.find((button) => {
+      if (!button.label.trim()) return true;
+      if (button.kind === "call") return button.url.replace(/\D/g, "").length < 7;
+      return !/^https?:\/\/.+/.test(button.url.trim());
+    });
+    if (badButton)
       next.buttons =
-        "Call button phone numbers need the full international format with a country code, e.g. +918700621883 — not just the 10-digit local number.";
-    } else {
-      const badButton = draft.buttons.find((button) => {
-        if (!button.label.trim()) return true;
-        if (button.kind === "call") return button.url.replace(/\D/g, "").length < 7;
-        return !/^https?:\/\/.+/.test(button.url.trim());
-      });
-      if (badButton)
-        next.buttons =
-          "Every button needs a label, and a URL (http:// or https://) or a phone number for Call buttons.";
-    }
+        "Every button needs a label, and a URL (http:// or https://) or a phone number for Call buttons.";
 
     return next;
   }
