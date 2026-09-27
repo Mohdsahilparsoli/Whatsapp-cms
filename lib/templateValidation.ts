@@ -111,12 +111,24 @@ export function validateTemplateFields(t: NormalizedTemplate): Record<string, st
       errors.media = "Upload a file for the attached media.";
     }
 
+    // Meta's Message Templates API rejects a Call button's phone number
+    // outright ((#192) "is not a valid phone number") if it's missing a
+    // country code — a plain 10-digit local number like "8700621883" isn't
+    // enough, it needs the full "+91..." international format. Catching
+    // that here (at save time) instead of only at Meta submission gives a
+    // much clearer error than Meta's own generic one.
+    const badCallButton = t.buttons.find((b) => b.kind === "call" && b.label && b.url.trim() !== "" && (!b.url.trim().startsWith("+") || b.url.replace(/\D/g, "").length < 8));
+    if (badCallButton) {
+      errors.buttons =
+        "Call button phone numbers need the full international format with a country code, e.g. +918700621883 — not just the 10-digit local number.";
+    }
+
     const badButton = t.buttons.find((b) => {
       if (!b.label) return true;
       if (b.kind === "call") return b.url.replace(/\D/g, "").length < 7;
       return !/^https?:\/\/.+/.test(b.url);
     });
-    if (badButton) {
+    if (!badCallButton && badButton) {
       errors.buttons =
         "Every button needs a label, and a URL (starting with http:// or https://) or a phone number for Call buttons.";
     }

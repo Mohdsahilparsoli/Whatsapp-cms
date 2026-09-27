@@ -216,14 +216,30 @@ export default function TemplateBuilder({
     if ((draft.footer ?? "").length > HEADER_FOOTER_MAX)
       next.footer = `Footer is too long for a button message — Meta allows up to ${HEADER_FOOTER_MAX} characters.`;
 
-    const badButton = draft.buttons.find((button) => {
-      if (!button.label.trim()) return true;
-      if (button.kind === "call") return button.url.replace(/\D/g, "").length < 7;
-      return !/^https?:\/\/.+/.test(button.url.trim());
-    });
-    if (badButton)
+    // Meta rejects a Call button's phone number outright ((#192) "is not a
+    // valid phone number") without a country code — a plain 10-digit local
+    // number isn't enough, it needs the full "+91..." format. Caught here so
+    // it's flagged before Save, not only after a confusing Meta error.
+    const badCallButton = draft.buttons.find(
+      (button) =>
+        button.kind === "call" &&
+        button.label.trim() &&
+        button.url.trim() &&
+        (!button.url.trim().startsWith("+") || button.url.replace(/\D/g, "").length < 8)
+    );
+    if (badCallButton) {
       next.buttons =
-        "Every button needs a label, and a URL (http:// or https://) or a phone number for Call buttons.";
+        "Call button phone numbers need the full international format with a country code, e.g. +918700621883 — not just the 10-digit local number.";
+    } else {
+      const badButton = draft.buttons.find((button) => {
+        if (!button.label.trim()) return true;
+        if (button.kind === "call") return button.url.replace(/\D/g, "").length < 7;
+        return !/^https?:\/\/.+/.test(button.url.trim());
+      });
+      if (badButton)
+        next.buttons =
+          "Every button needs a label, and a URL (http:// or https://) or a phone number for Call buttons.";
+    }
 
     return next;
   }
