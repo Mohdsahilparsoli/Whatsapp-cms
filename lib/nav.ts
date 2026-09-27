@@ -109,7 +109,7 @@ export const pageMeta: Record<string, PageMeta> = {
   "/templates": {
     title: "Templates",
     description:
-      "Meta-approved templates and your own custom templates.",
+      "Your own message templates — submit to Meta for real approval when you're ready.",
     breadcrumb: [{ label: "Templates" }],
     navHref: "/templates",
   },

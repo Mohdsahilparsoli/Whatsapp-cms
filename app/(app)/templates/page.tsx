@@ -9,21 +9,25 @@ import DataTable, { type Column } from "@/components/ui/DataTable";
 import SearchInput from "@/components/ui/SearchInput";
 import FilterDropdown from "@/components/ui/FilterDropdown";
 import StatusBadge from "@/components/ui/StatusBadge";
-import Tabs from "@/components/ui/Tabs";
 import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import EmptyState from "@/components/ui/EmptyState";
 import InlineAlert from "@/components/ui/InlineAlert";
 import TemplatePreview from "@/components/templates/TemplatePreview";
-import TemplateSourceBadge from "@/components/templates/TemplateSourceBadge";
 import TemplateBuilder from "@/components/templates/TemplateBuilder";
-import { metaTemplateViews, useCustomTemplates } from "@/lib/customTemplates";
+import { useCustomTemplates } from "@/lib/customTemplates";
 import { getPageMeta } from "@/lib/nav";
 import { formatDate } from "@/lib/utils";
 import type { CustomTemplate, TemplateView } from "@/types";
 
-type Tab = "all" | "meta" | "custom";
-
+/**
+ * Only real Custom Templates live here — every row is something the client
+ * actually created and owns, whose "Meta" badge (see the status column) is
+ * a real, live Meta Message Template approval status (lib/metaTemplates.ts),
+ * not mock/demo data. This used to also show a "Meta-Approved Templates"
+ * tab backed by fake data (data/campaigns.ts) — removed at the client's
+ * request since it was confusing next to the real submission flow above.
+ */
 export default function TemplatesPage() {
   const meta = getPageMeta("/templates");
   const {
@@ -39,7 +43,6 @@ export default function TemplatesPage() {
     nameTaken,
   } = useCustomTemplates();
 
-  const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [category, setCategory] = useState("all");
@@ -50,19 +53,11 @@ export default function TemplatesPage() {
   const [confirmDelete, setConfirmDelete] = useState<TemplateView | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const [refreshing, setRefreshing] = useState(false);
   const [metaActionId, setMetaActionId] = useState<string | null>(null);
 
   const rows = useMemo(() => {
-    const base: TemplateView[] =
-      tab === "meta"
-        ? metaTemplateViews
-        : tab === "custom"
-          ? customViews
-          : [...metaTemplateViews, ...customViews];
-
     const q = query.trim().toLowerCase();
-    return base.filter((row) => {
+    return customViews.filter((row) => {
       const matchesQuery =
         !q ||
         row.name.toLowerCase().includes(q) ||
@@ -71,16 +66,7 @@ export default function TemplatesPage() {
       const matchesCategory = category === "all" || row.category === category;
       return matchesQuery && matchesStatus && matchesCategory;
     });
-  }, [tab, customViews, query, status, category]);
-
-  function refreshTemplates() {
-    setRefreshing(true);
-    refresh(); // real refetch for Custom Templates
-    window.setTimeout(() => {
-      // Meta-Approved is still mock — this timeout just simulates its sync.
-      setRefreshing(false);
-    }, 900);
-  }
+  }, [customViews, query, status, category]);
 
   function openCreate() {
     setEditingTemplate(null);
@@ -140,30 +126,11 @@ export default function TemplatesPage() {
     }
   }
 
-  // Status options depend on the tab, because the two libraries use different
-  // status vocabularies.
-  const statusOptions =
-    tab === "custom"
-      ? [
-          { label: "All statuses", value: "all" },
-          { label: "Custom", value: "custom" },
-          { label: "Draft", value: "draft" },
-        ]
-      : tab === "meta"
-        ? [
-            { label: "All statuses", value: "all" },
-            { label: "Approved", value: "approved" },
-            { label: "Pending", value: "pending" },
-            { label: "Rejected", value: "rejected" },
-          ]
-        : [
-            { label: "All statuses", value: "all" },
-            { label: "Approved", value: "approved" },
-            { label: "Pending", value: "pending" },
-            { label: "Rejected", value: "rejected" },
-            { label: "Custom", value: "custom" },
-            { label: "Draft", value: "draft" },
-          ];
+  const statusOptions = [
+    { label: "All statuses", value: "all" },
+    { label: "Custom", value: "custom" },
+    { label: "Draft", value: "draft" },
+  ];
 
   const columns: Column<TemplateView>[] = [
     {
@@ -177,11 +144,6 @@ export default function TemplatesPage() {
           </p>
         </div>
       ),
-    },
-    {
-      key: "source",
-      header: "Type",
-      render: (row) => <TemplateSourceBadge source={row.source} />,
     },
     { key: "category", header: "Category", render: (row) => row.category },
     { key: "language", header: "Language", render: (row) => row.language },
@@ -197,7 +159,7 @@ export default function TemplatesPage() {
           {/* Real Meta Message Template approval status — independent of
               the "Custom"/"Draft" status above (see lib/metaTemplates.ts).
               Only shown once submission has actually happened. */}
-          {row.source === "custom" && row.metaStatus && row.metaStatus !== "not_submitted" && (
+          {row.metaStatus && row.metaStatus !== "not_submitted" && (
             <StatusBadge status={row.metaStatus} label={`Meta: ${row.metaStatus.replace(/_/g, " ")}`} />
           )}
         </div>
@@ -218,41 +180,33 @@ export default function TemplatesPage() {
           <Button size="sm" onClick={() => setPreview(row)}>
             Preview
           </Button>
-          {row.source === "custom" && (
-            <>
-              {row.status === "custom" &&
-                (!row.metaStatus || row.metaStatus === "not_submitted" || row.metaStatus === "rejected") && (
-                  <Button
-                    size="sm"
-                    onClick={() => handleSubmitForApproval(row)}
-                    disabled={metaActionId === row.id}
-                  >
-                    {metaActionId === row.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <CloudUpload className="h-3.5 w-3.5" />
-                    )}
-                    {row.metaStatus === "rejected" ? "Resubmit to Meta" : "Submit to Meta"}
-                  </Button>
+          {row.status === "custom" &&
+            (!row.metaStatus || row.metaStatus === "not_submitted" || row.metaStatus === "rejected") && (
+              <Button size="sm" onClick={() => handleSubmitForApproval(row)} disabled={metaActionId === row.id}>
+                {metaActionId === row.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CloudUpload className="h-3.5 w-3.5" />
                 )}
-              {row.metaStatus === "pending" && (
-                <Button size="sm" onClick={() => handleCheckStatus(row)} disabled={metaActionId === row.id}>
-                  {metaActionId === row.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                  Check status
-                </Button>
+                {row.metaStatus === "rejected" ? "Resubmit to Meta" : "Submit to Meta"}
+              </Button>
+            )}
+          {row.metaStatus === "pending" && (
+            <Button size="sm" onClick={() => handleCheckStatus(row)} disabled={metaActionId === row.id}>
+              {metaActionId === row.id ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
               )}
-              <Button size="sm" onClick={() => openEdit(row)}>
-                <Pencil className="h-3.5 w-3.5" /> Edit
-              </Button>
-              <Button size="sm" variant="danger" onClick={() => setConfirmDelete(row)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </>
+              Check status
+            </Button>
           )}
+          <Button size="sm" onClick={() => openEdit(row)}>
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => setConfirmDelete(row)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         </div>
       ),
     },
@@ -265,13 +219,9 @@ export default function TemplatesPage() {
         description={meta.description}
         actions={
           <>
-            <Button onClick={refreshTemplates} disabled={refreshing}>
-              {refreshing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              {refreshing ? "Refreshing…" : "Refresh templates"}
+            <Button onClick={refresh} disabled={loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {loading ? "Refreshing…" : "Refresh templates"}
             </Button>
             <Button variant="primary" onClick={openCreate}>
               <Plus className="h-4 w-4" /> Create Custom Template
@@ -295,33 +245,6 @@ export default function TemplatesPage() {
       )}
 
       <Card>
-        <div className="px-5 pt-3">
-          <Tabs
-            tabs={[
-              {
-                label: "All Templates",
-                value: "all",
-                count: metaTemplateViews.length + customViews.length,
-              },
-              {
-                label: "Meta-Approved Templates",
-                value: "meta",
-                count: metaTemplateViews.length,
-              },
-              {
-                label: "Custom Templates",
-                value: "custom",
-                count: customViews.length,
-              },
-            ]}
-            active={tab}
-            onChange={(value) => {
-              setTab(value as Tab);
-              setStatus("all");
-            }}
-          />
-        </div>
-
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-3">
           <SearchInput
             value={query}
@@ -351,7 +274,7 @@ export default function TemplatesPage() {
           </span>
         </div>
 
-        {tab === "custom" && customViews.length === 0 && !loading && !refreshing ? (
+        {customViews.length === 0 && !loading ? (
           <EmptyState
             icon={FileText}
             title="No custom templates yet"
@@ -367,9 +290,9 @@ export default function TemplatesPage() {
             columns={columns}
             rows={rows}
             rowKey={(row) => row.id}
-            loading={refreshing || (tab !== "meta" && loading)}
+            loading={loading}
             emptyTitle="No templates match your filters"
-            emptyDescription="Clear the search or switch tabs to see other templates."
+            emptyDescription="Clear the search to see your other templates."
           />
         )}
       </Card>
@@ -421,19 +344,14 @@ export default function TemplatesPage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-xs">
-              <span className="text-slate-500">
-                {preview.source === "meta" ? "Approval status" : "Template status"}
-              </span>
-              <span className="flex items-center gap-2">
-                <TemplateSourceBadge source={preview.source} />
-                <StatusBadge
-                  status={preview.status}
-                  label={preview.status === "custom" ? "Custom" : undefined}
-                />
-              </span>
+              <span className="text-slate-500">Template status</span>
+              <StatusBadge
+                status={preview.status}
+                label={preview.status === "custom" ? "Custom" : undefined}
+              />
             </div>
 
-            {preview.source === "custom" && preview.metaStatus && preview.metaStatus !== "not_submitted" && (
+            {preview.metaStatus && preview.metaStatus !== "not_submitted" && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-xs">
                 <span className="text-slate-500">Meta approval status</span>
                 <StatusBadge status={preview.metaStatus} label={preview.metaStatus.replace(/_/g, " ")} />

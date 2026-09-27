@@ -8,31 +8,8 @@ import {
   useMemo,
   useState,
 } from "react";
-import { templates as metaTemplates } from "@/data/campaigns";
 import { clientIdFor, useAuth } from "@/lib/auth";
 import type { CustomTemplate, TemplateView } from "@/types";
-
-/** Normalises a Meta-approved template into the shared view model. Still
- * mock data (data/campaigns.ts) — real Meta sync is a later phase. */
-export function metaToView(
-  template: (typeof metaTemplates)[number]
-): TemplateView {
-  return {
-    id: template.id,
-    source: "meta",
-    name: template.name,
-    language: template.language,
-    category: template.category,
-    status: template.status,
-    header: template.header,
-    body: template.body,
-    footer: template.footer,
-    media: { kind: "none", url: "" },
-    buttons: [],
-    variables: template.variables,
-    updatedAt: template.updatedAt,
-  };
-}
 
 export function customToView(template: CustomTemplate): TemplateView {
   return {
@@ -53,8 +30,6 @@ export function customToView(template: CustomTemplate): TemplateView {
     updatedAt: template.updatedAt,
   };
 }
-
-export const metaTemplateViews: TemplateView[] = metaTemplates.map(metaToView);
 
 export type CustomTemplateDraft = Omit<
   CustomTemplate,

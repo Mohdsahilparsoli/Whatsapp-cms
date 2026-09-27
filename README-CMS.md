@@ -110,9 +110,13 @@ types/                  shared TypeScript types
 
 ## Custom templates
 
-- Templates page has three tabs: All Templates, Meta-Approved Templates, Custom
-  Templates. Custom templates are scoped to the signed-in client and are never
-  labelled "Meta Approved".
+- Templates page shows only the signed-in client's own real Custom Templates
+  — no separate "Meta-Approved Templates" tab anymore. It used to (backed by
+  mock data in `data/campaigns.ts`), but that was removed at the client's
+  request since it was confusing sitting next to the real Meta submission
+  flow (see "Real Meta Message Template system" below) — every row here is
+  something the client actually created, and its Meta approval status badge
+  (when present) is real, not mock.
 - The builder supports text, image/video/document media, header/footer, message
   variables ({{1}}, {{2}} …), URL buttons, WhatsApp chat buttons, a live preview,
   Save as Draft, and Save Template. Drafts are not sendable.
@@ -185,12 +189,10 @@ types/                  shared TypeScript types
 
 - **Custom Templates** are real: stored in PostgreSQL (`custom_templates`
   table), scoped to the signed-in client (`requireClient()`, same as
-  Contacts). **Meta-Approved Templates stay mock data** (`data/campaigns.ts`)
-  — real Meta WhatsApp Business API sync is a separate, later phase.
-- Phase 1 scope is deliberately **Create + listing only** — there is no Edit
-  or Delete for custom templates yet (`app/api/templates/route.ts` only
-  exports `GET`/`POST`). Add those (`PUT`/`DELETE /api/templates/[id]`) when
-  that's needed.
+  Contacts). The old mock "Meta-Approved Templates" tab (`data/campaigns.ts`)
+  has been removed from the Templates page — see "Real Meta Message Template
+  system" below for the real thing.
+- Create, Edit (`PUT`), and Delete (`DELETE /api/templates/[id]`) are all real.
 - **Media is a real file upload**, not a URL field: `POST /api/templates/media`
   saves the file straight to this server's local disk under
   `public/uploads/templates/<clientId>/` (Next.js then serves it as a static
