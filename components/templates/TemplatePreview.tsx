@@ -69,7 +69,17 @@ export default function TemplatePreview({
           // eslint-disable-next-line @next/next/no-img-element -- previewing an uploaded file from our own /uploads path, not worth next/image's config here
           <img src={media.url} alt="" className="h-40 w-full object-cover" />
         )}
-        {mediaMeta && !(media.kind === "image" && media.url.trim()) && (
+        {media.kind === "video" && media.url.trim() && (
+          // Real, playable preview — same file that'll actually be sent as
+          // the template's HEADER, not just a filename row like documents.
+          <video
+            key={media.url}
+            src={media.url}
+            controls
+            className="h-48 w-full bg-black object-contain"
+          />
+        )}
+        {mediaMeta && !(media.url.trim() && (media.kind === "image" || media.kind === "video")) && (
           <div className="flex items-center gap-2 border-b border-emerald-200/70 bg-emerald-50 px-3.5 py-3 text-xs text-emerald-900">
             <mediaMeta.icon className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
