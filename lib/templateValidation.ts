@@ -1,6 +1,6 @@
 export const CATEGORIES = ["Marketing", "Utility", "Authentication"] as const;
 export const MEDIA_KINDS = ["none", "image", "video", "document"] as const;
-export const BUTTON_KINDS = ["url", "call", "whatsapp"] as const;
+export const BUTTON_KINDS = ["url", "call", "whatsapp", "quick_reply"] as const;
 export const MAX_BUTTONS = 3;
 export const MAX_VARIABLES = 10;
 
@@ -126,6 +126,9 @@ export function validateTemplateFields(t: NormalizedTemplate): Record<string, st
       // the real check here, not just "looks like a URL" — an empty number
       // still leaves a string that matches the URL regex below.
       if (b.kind === "whatsapp") return b.url.replace(/\D/g, "").length < 7;
+      // A Quick Reply button has no destination at all — the label is the
+      // whole button (see buttonMeta in TemplateBuilder.tsx).
+      if (b.kind === "quick_reply") return false;
       return !/^https?:\/\/.+/.test(b.url);
     });
     if (badButton) {

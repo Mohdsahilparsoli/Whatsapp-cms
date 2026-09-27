@@ -1,6 +1,14 @@
 "use client";
 
-import { ExternalLink, FileText, Image as ImageIcon, MessageCircle, Phone, Video } from "lucide-react";
+import {
+  ExternalLink,
+  FileText,
+  Image as ImageIcon,
+  MessageCircle,
+  MessageSquareReply,
+  Phone,
+  Video,
+} from "lucide-react";
 import { fillTemplate } from "@/lib/utils";
 import type { TemplateButton, TemplateMedia } from "@/types";
 
@@ -17,12 +25,14 @@ const buttonIcons: Record<TemplateButton["kind"], React.ComponentType<{ classNam
   whatsapp: MessageCircle,
   call: Phone,
   url: ExternalLink,
+  quick_reply: MessageSquareReply,
 };
 
 const buttonDefaultLabels: Record<TemplateButton["kind"], string> = {
   whatsapp: "Chat with us",
   call: "Call us",
   url: "Open link",
+  quick_reply: "Yes, I'm interested",
 };
 
 /**

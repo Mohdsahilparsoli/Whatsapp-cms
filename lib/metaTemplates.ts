@@ -70,7 +70,7 @@ export function normalizeMetaStatus(raw: string | null | undefined): MetaTemplat
   return "pending";
 }
 
-type ButtonKind = "url" | "call" | "whatsapp";
+type ButtonKind = "url" | "call" | "whatsapp" | "quick_reply";
 interface ButtonLike {
   kind: ButtonKind;
   label: string;
@@ -122,12 +122,22 @@ function sanitizePhoneNumber(raw: string, defaultCallingCode: string | null): st
 
 /** "whatsapp"-kind buttons are also URL-shaped in this app (see
  * lib/whatsappMessage.ts's ctaButton matcher) — both map to Meta's "URL"
- * button type; only "call" maps to "PHONE_NUMBER". A "whatsapp" button's
- * `url` is just the raw number the person typed (see TemplateBuilder), so
- * it's turned into the real https://wa.me/<number> link here — with the
- * same auto-detected country code as the Call button — rather than in the
+ * button type; "call" maps to "PHONE_NUMBER"; "quick_reply" maps to
+ * Meta's "QUICK_REPLY" type, which has no destination at all — it's just
+ * the button's own label, and tapping it sends that text back as the
+ * customer's reply in the same chat. A "whatsapp" button's `url` is just
+ * the raw number the person typed (see TemplateBuilder), so it's turned
+ * into the real https://wa.me/<number> link here — with the same
+ * auto-detected country code as the Call button — rather than in the
  * browser on every keystroke, which is what caused the country code to
- * double up before. */
+ * double up before.
+ *
+ * Note: Meta rejects a "url"/"whatsapp" button whose link points at
+ * wa.me/whatsapp.com ("Direct links to WhatsApp aren't allowed for
+ * buttons") — a template message is already inside WhatsApp, so Meta
+ * doesn't allow a button that just re-opens WhatsApp. "quick_reply" is
+ * the real way to get "chat"-style engagement inside an approved
+ * template. */
 function toMetaButtons(buttons: ButtonLike[], defaultCallingCode: string | null) {
   return buttons.slice(0, 3).map((b) => {
     if (b.kind === "call") {
@@ -136,6 +146,9 @@ function toMetaButtons(buttons: ButtonLike[], defaultCallingCode: string | null)
         text: b.label.slice(0, 20) || "Call",
         phone_number: sanitizePhoneNumber(b.url, defaultCallingCode),
       };
+    }
+    if (b.kind === "quick_reply") {
+      return { type: "QUICK_REPLY", text: b.label.slice(0, 25) || "Reply" };
     }
     const url = b.kind === "whatsapp" ? toWaMeUrl(b.url, defaultCallingCode) : b.url;
     return { type: "URL", text: b.label.slice(0, 20) || "Open", url };

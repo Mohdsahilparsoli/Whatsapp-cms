@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ExternalLink, Loader2, MessageCircle, Phone, Plus, Trash2, UploadCloud, X } from "lucide-react";
+import { ExternalLink, Loader2, MessageCircle, MessageSquareReply, Phone, Plus, Trash2, UploadCloud, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import InlineAlert from "@/components/ui/InlineAlert";
@@ -48,6 +48,12 @@ const buttonMeta: Record<
   url: { label: "Primary button (URL)", icon: ExternalLink, valueLabel: "URL", placeholder: "https://example.com/offer" },
   call: { label: "Call button", icon: Phone, valueLabel: "Phone number", placeholder: "98110 22331" },
   whatsapp: { label: "WhatsApp chat button", icon: MessageCircle, valueLabel: "WhatsApp number", placeholder: "98110 22331" },
+  quick_reply: {
+    label: "Quick Reply button",
+    icon: MessageSquareReply,
+    valueLabel: "",
+    placeholder: "",
+  },
 };
 
 /**
@@ -175,7 +181,14 @@ export default function TemplateBuilder({
         {
           id: `btn-${Date.now()}-${draft.buttons.length}`,
           kind,
-          label: kind === "whatsapp" ? "Chat with us" : kind === "call" ? "Call us" : "",
+          label:
+            kind === "whatsapp"
+              ? "Chat with us"
+              : kind === "call"
+                ? "Call us"
+                : kind === "quick_reply"
+                  ? "Yes, I'm interested"
+                  : "",
           url: "",
         },
       ],
@@ -244,6 +257,8 @@ export default function TemplateBuilder({
       // prefix + whatever number was typed above — so "enough digits" is
       // the real check, since an empty number still passes the URL regex.
       if (button.kind === "whatsapp") return button.url.replace(/\D/g, "").length < 7;
+      // A Quick Reply button has no destination — the label is the button.
+      if (button.kind === "quick_reply") return false;
       return !/^https?:\/\/.+/.test(button.url.trim());
     });
     if (badButton)
@@ -496,8 +511,20 @@ export default function TemplateBuilder({
                 <Button size="sm" onClick={() => addButton("whatsapp")} disabled={draft.buttons.length >= MAX_BUTTONS}>
                   <MessageCircle className="h-3.5 w-3.5" /> Add WhatsApp chat
                 </Button>
+                <Button size="sm" onClick={() => addButton("quick_reply")} disabled={draft.buttons.length >= MAX_BUTTONS}>
+                  <MessageSquareReply className="h-3.5 w-3.5" /> Add Quick Reply
+                </Button>
               </div>
             </div>
+
+            {draft.buttons.some((b) => b.kind === "whatsapp") && (
+              <p className="mt-2 text-xs text-amber-600">
+                Heads up: Meta doesn&apos;t allow a WhatsApp chat (wa.me) button in a
+                template submitted for approval — it only works if this stays a
+                Custom/Draft template you send yourself. Use Quick Reply instead for an
+                approved template.
+              </p>
+            )}
 
             {draft.buttons.length === 0 ? (
               <p className="mt-2 text-xs text-slate-400">
@@ -542,7 +569,12 @@ export default function TemplateBuilder({
                           }
                           placeholder={meta.label === "Call button" ? "Call us" : "View collection"}
                         />
-                        {button.kind === "whatsapp" ? (
+                        {button.kind === "quick_reply" ? (
+                          <p className="self-center text-xs text-slate-400 sm:mt-6">
+                            No destination needed — tapping this sends the label above
+                            back as the customer&apos;s reply, right in the chat.
+                          </p>
+                        ) : button.kind === "whatsapp" ? (
                           <div>
                             <label className="block text-sm font-medium text-slate-700">{meta.valueLabel}</label>
                             <div className="mt-1.5 flex h-9 items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100">

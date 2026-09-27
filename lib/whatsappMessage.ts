@@ -84,11 +84,12 @@ export function toWaMeUrl(raw: string, defaultCallingCode?: string | null): stri
  * via an "interactive" cta_url message — not the up-to-3-buttons a Custom
  * Template can hold, and not a text+media header together (only one header
  * type at a time). So: only the first url/whatsapp-kind button is actually
- * sent (extra buttons, and any "call"/phone button, are Meta Template-only
- * features with no free-form equivalent and are dropped here); a media
- * header wins over a text header when both are set; and a header/footer
- * with no button and no media has nowhere to go in a plain text message, so
- * it's folded into the body text instead of being silently lost.
+ * sent (extra buttons, and any "call"/phone or "quick_reply" button, are
+ * Meta Template-only features with no free-form equivalent and are dropped
+ * here); a media header wins over a text header when both are set; and a
+ * header/footer with no button and no media has nowhere to go in a plain
+ * text message, so it's folded into the body text instead of being
+ * silently lost.
  */
 export function buildOutboundMessage(template: TemplateLike, origin: string): BuiltMessage {
   const buttons = asButtons(template.buttons);

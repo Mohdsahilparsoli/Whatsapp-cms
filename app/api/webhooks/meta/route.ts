@@ -36,10 +36,18 @@ interface IncomingMessage {
   id: string;
   from: string; // sender's phone number, no "+"
   timestamp?: string;
-  type: "text" | "image" | "document" | string;
+  type: "text" | "image" | "document" | "button" | "interactive" | string;
   text?: { body: string };
   image?: { id: string; caption?: string };
   document?: { id: string; caption?: string; filename?: string };
+  /** Legacy quick-reply tap on a Meta Message Template's QUICK_REPLY button. */
+  button?: { text: string; payload?: string };
+  /** Current-format reply to a QUICK_REPLY (or list/interactive) button. */
+  interactive?: {
+    type: string;
+    button_reply?: { id: string; title: string };
+    list_reply?: { id: string; title: string };
+  };
 }
 
 interface ChangeValue {
@@ -227,6 +235,13 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
 
   if (message.type === "text") {
     text = message.text?.body ?? "";
+  } else if (message.type === "button") {
+    // A tap on a Meta Message Template's QUICK_REPLY button — treat its
+    // label like a normal text reply from the customer (see
+    // lib/metaTemplates.ts's toMetaButtons for how these buttons are sent).
+    text = message.button?.text ?? "";
+  } else if (message.type === "interactive") {
+    text = message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title ?? "";
   } else if (message.type === "image") {
     type = "image";
     text = message.image?.caption ?? "";

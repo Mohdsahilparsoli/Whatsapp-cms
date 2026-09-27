@@ -270,7 +270,7 @@ export interface SubscriptionHistoryEntry {
 export type TemplateSource = "meta" | "custom";
 export type CustomTemplateStatus = "draft" | "custom";
 export type TemplateMediaKind = "none" | "image" | "video" | "document";
-export type TemplateButtonKind = "url" | "call" | "whatsapp";
+export type TemplateButtonKind = "url" | "call" | "whatsapp" | "quick_reply";
 
 /** Real Meta Message Template approval status for a Custom Template — see
  * lib/metaTemplates.ts. Independent of CustomTemplateStatus (draft/custom),
@@ -287,7 +287,9 @@ export interface TemplateButton {
   id: string;
   kind: TemplateButtonKind;
   label: string;
-  /** A URL for "url"/"whatsapp" buttons, or a phone number for "call". */
+  /** A URL for "url"/"whatsapp" buttons, a phone number for "call", or
+   * unused ("") for "quick_reply" — it has no destination, tapping it just
+   * sends its label back as the customer's reply in the same chat. */
   url: string;
 }
 
