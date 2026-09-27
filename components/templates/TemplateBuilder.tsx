@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { ExternalLink, Loader2, MessageCircle, MessageSquareReply, Phone, Plus, Trash2, UploadCloud, X } from "lucide-react";
+import { upload } from "@vercel/blob/client";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import InlineAlert from "@/components/ui/InlineAlert";
@@ -12,7 +13,15 @@ import type { CustomTemplate, TemplateButtonKind } from "@/types";
 
 const MAX_BUTTONS = 3;
 const MAX_VARIABLES = 10;
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+// Matches app/api/templates/media/client-upload/route.ts's own per-kind
+// ceilings — video gets a little more headroom since a few seconds of real
+// footage routinely lands between 4–10MB.
+const MAX_FILE_BYTES: Record<string, number> = {
+  none: 0,
+  image: 10 * 1024 * 1024,
+  video: 16 * 1024 * 1024,
+  document: 10 * 1024 * 1024,
+};
 
 const categories = [
   { label: "Marketing", value: "Marketing" },
@@ -198,25 +207,31 @@ export default function TemplateBuilder({
   async function handleFileSelected(file: File | undefined) {
     setUploadError(null);
     if (!file) return;
-    if (file.size > MAX_FILE_BYTES) {
-      setUploadError("That file is larger than 10MB.");
+    const kind = draft.media.kind;
+    const maxBytes = MAX_FILE_BYTES[kind] ?? MAX_FILE_BYTES.image;
+    if (file.size > maxBytes) {
+      setUploadError(`That file is larger than ${Math.round(maxBytes / (1024 * 1024))}MB.`);
       return;
     }
 
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("kind", draft.media.kind);
-      formData.append("file", file);
-      const res = await fetch("/api/templates/media", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        setUploadError(data.error ?? "Could not upload that file.");
-        return;
-      }
-      patch({ media: { kind: draft.media.kind, url: data.url, fileName: data.fileName } });
-    } catch {
-      setUploadError("Could not reach the server. Please try again.");
+      // Uploads straight from the browser to Vercel Blob — see
+      // app/api/templates/media/client-upload/route.ts, which only
+      // authorizes the transfer (no file bytes pass through our own
+      // Next.js route, so there's no Serverless Function body-size limit
+      // in the way, unlike the old proxied upload this replaced).
+      const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
+      const pathname = `templates/${crypto.randomUUID()}${ext}`;
+      const blob = await upload(pathname, file, {
+        access: "public",
+        handleUploadUrl: "/api/templates/media/client-upload",
+        clientPayload: kind,
+        contentType: file.type || undefined,
+      });
+      patch({ media: { kind, url: blob.url, fileName: file.name } });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Could not reach the server. Please try again.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -363,7 +378,7 @@ export default function TemplateBuilder({
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="text-xs font-medium text-slate-600">
                 {draft.media.kind === "image" && "Image — jpg, png, webp, or gif, up to 10MB"}
-                {draft.media.kind === "video" && "Video — mp4, webm, or mov, up to 10MB"}
+                {draft.media.kind === "video" && "Video — mp4, webm, or mov, up to 16MB"}
                 {draft.media.kind === "document" && "Document — PDF, up to 10MB"}
               </p>
 
