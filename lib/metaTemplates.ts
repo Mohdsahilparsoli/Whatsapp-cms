@@ -192,15 +192,24 @@ export interface SubmittableTemplate {
  * Needs NEXT_PUBLIC_META_APP_ID (already used for Embedded Signup) — the
  * Resumable Upload API is scoped to the Meta App, not the WABA/phone number.
  */
-async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: string): Promise<string | null> {
+type UploadMediaResult = { ok: true; handle: string } | { ok: false; error: string };
+
+async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: string): Promise<UploadMediaResult> {
   const appId = process.env.NEXT_PUBLIC_META_APP_ID;
-  if (!appId) return null;
+  if (!appId) {
+    return { ok: false, error: "NEXT_PUBLIC_META_APP_ID is not set in this environment." };
+  }
 
   const fileUrl = mediaUrl.startsWith("http") ? mediaUrl : `${origin}${mediaUrl}`;
 
   try {
     const fileRes = await fetch(fileUrl);
-    if (!fileRes.ok) return null;
+    if (!fileRes.ok) {
+      return {
+        ok: false,
+        error: `Could not fetch the template's media file from ${fileUrl} (HTTP ${fileRes.status}).`,
+      };
+    }
     const buffer = Buffer.from(await fileRes.arrayBuffer());
     const contentType = fileRes.headers.get("content-type") ?? "application/octet-stream";
 
@@ -210,8 +219,18 @@ async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: 
       )}&access_token=${encodeURIComponent(accessToken)}`,
       { method: "POST" }
     );
-    const session: { id?: string } = await sessionRes.json().catch(() => ({}));
-    if (!sessionRes.ok || !session.id) return null;
+    const session: { id?: string; error?: { message?: string; error_user_msg?: string } } = await sessionRes
+      .json()
+      .catch(() => ({}));
+    if (!sessionRes.ok || !session.id) {
+      return {
+        ok: false,
+        error:
+          session.error?.error_user_msg ??
+          session.error?.message ??
+          `Meta rejected starting the upload session (HTTP ${sessionRes.status}).`,
+      };
+    }
 
     const uploadRes = await fetch(`https://graph.facebook.com/v25.0/${session.id}`, {
       method: "POST",
@@ -221,11 +240,21 @@ async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: 
       },
       body: buffer,
     });
-    const uploaded: { h?: string } = await uploadRes.json().catch(() => ({}));
-    if (!uploadRes.ok || !uploaded.h) return null;
-    return uploaded.h;
-  } catch {
-    return null;
+    const uploaded: { h?: string; error?: { message?: string; error_user_msg?: string } } = await uploadRes
+      .json()
+      .catch(() => ({}));
+    if (!uploadRes.ok || !uploaded.h) {
+      return {
+        ok: false,
+        error:
+          uploaded.error?.error_user_msg ??
+          uploaded.error?.message ??
+          `Meta rejected the file upload itself (HTTP ${uploadRes.status}).`,
+      };
+    }
+    return { ok: true, handle: uploaded.h };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not reach Meta's upload API." };
   }
 }
 
@@ -247,18 +276,17 @@ export async function buildTemplateComponents(
   const components: Record<string, unknown>[] = [];
 
   if (t.mediaKind !== "none" && t.mediaUrl) {
-    const handle = await uploadMediaHandle(accessToken, t.mediaUrl, t.origin);
-    if (!handle) {
+    const uploaded = await uploadMediaHandle(accessToken, t.mediaUrl, t.origin);
+    if (!uploaded.ok) {
       return {
         ok: false,
-        error:
-          "Could not upload this template's media to Meta — check NEXT_PUBLIC_META_APP_ID is set and the file is reachable.",
+        error: `Could not upload this template's media to Meta — ${uploaded.error}`,
       };
     }
     components.push({
       type: "HEADER",
       format: t.mediaKind.toUpperCase(),
-      example: { header_handle: [handle] },
+      example: { header_handle: [uploaded.handle] },
     });
   } else if (t.header) {
     const indices = variableIndices(t.header);
