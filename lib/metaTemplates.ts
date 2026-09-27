@@ -191,13 +191,20 @@ export interface SubmittableTemplate {
  *      submission's HEADER component.
  * Needs NEXT_PUBLIC_META_APP_ID (already used for Embedded Signup) — the
  * Resumable Upload API is scoped to the Meta App, not the WABA/phone number.
+ *
+ * Reads META_APP_ID first — a plain, server-only env var, since this call
+ * only ever runs on the server (this whole file is "server-only") and
+ * never needs to reach the browser. Falls back to NEXT_PUBLIC_META_APP_ID
+ * (used by app/(app)/whatsapp-setup/page.tsx's client-side Embedded
+ * Signup, which does need the public prefix) so either one set is enough —
+ * no need to duplicate the same App ID under two keys.
  */
 type UploadMediaResult = { ok: true; handle: string } | { ok: false; error: string };
 
 async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: string): Promise<UploadMediaResult> {
-  const appId = process.env.NEXT_PUBLIC_META_APP_ID;
+  const appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
   if (!appId) {
-    return { ok: false, error: "NEXT_PUBLIC_META_APP_ID is not set in this environment." };
+    return { ok: false, error: "META_APP_ID (or NEXT_PUBLIC_META_APP_ID) is not set in this environment." };
   }
 
   const fileUrl = mediaUrl.startsWith("http") ? mediaUrl : `${origin}${mediaUrl}`;
