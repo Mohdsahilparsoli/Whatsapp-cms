@@ -584,12 +584,7 @@ export default function TemplateBuilder({
                           }
                           placeholder={meta.label === "Call button" ? "Call us" : "View collection"}
                         />
-                        {button.kind === "quick_reply" ? (
-                          <p className="self-center text-xs text-slate-400 sm:mt-6">
-                            No destination needed — tapping this sends the label above
-                            back as the customer&apos;s reply, right in the chat.
-                          </p>
-                        ) : button.kind === "whatsapp" ? (
+                        {button.kind === "whatsapp" ? (
                           <div>
                             <label className="block text-sm font-medium text-slate-700">{meta.valueLabel}</label>
                             <div className="mt-1.5 flex h-9 items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100">
@@ -612,7 +607,7 @@ export default function TemplateBuilder({
                               />
                             </div>
                           </div>
-                        ) : (
+                        ) : button.kind === "quick_reply" ? null : (
                           <FormField
                             label={meta.valueLabel}
                             value={button.url}
@@ -627,6 +622,12 @@ export default function TemplateBuilder({
                           />
                         )}
                       </div>
+                      {button.kind === "quick_reply" && (
+                        <p className="mt-2 text-xs text-slate-400">
+                          No destination needed — tapping this sends the label above
+                          back as the customer&apos;s reply, right in the chat.
+                        </p>
+                      )}
                     </li>
                   );
                 })}
