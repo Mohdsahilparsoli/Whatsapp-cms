@@ -62,6 +62,24 @@ function clip(text: string, max: number): string {
 }
 
 /**
+ * Turns a WhatsApp chat button's raw typed number (just digits — the
+ * TemplateBuilder UI only ever collects the number, never a full link or a
+ * typed country code) into the real https://wa.me/<number> link. Mirrors
+ * how the Call button's phone number is auto-completed with a country code
+ * (see lib/metaTemplates.ts's sanitizePhoneNumber) so the person never has
+ * to type "91" (or any country code) themselves — this is done once, here,
+ * not on every keystroke, which is what caused it to double up before. A
+ * number that already looks like it has a country code (more than 10
+ * digits) is used as-is.
+ */
+export function toWaMeUrl(raw: string, defaultCallingCode?: string | null): string {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  const withCode = digits.length > 10 ? digits : `${defaultCallingCode || "91"}${digits}`;
+  return `https://wa.me/${withCode}`;
+}
+
+/**
  * WhatsApp's free-form (non-template) messaging only supports ONE button,
  * via an "interactive" cta_url message — not the up-to-3-buttons a Custom
  * Template can hold, and not a text+media header together (only one header
@@ -104,7 +122,7 @@ export function buildOutboundMessage(template: TemplateLike, origin: string): Bu
             name: "cta_url",
             parameters: {
               display_text: clip(ctaButton.label, BUTTON_DISPLAY_TEXT_MAX) || "Open",
-              url: ctaButton.url,
+              url: ctaButton.kind === "whatsapp" ? toWaMeUrl(ctaButton.url) : ctaButton.url,
             },
           },
         },

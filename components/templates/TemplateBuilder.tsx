@@ -53,31 +53,19 @@ const buttonMeta: Record<
 /**
  * The WhatsApp chat button always links to https://wa.me/<number> — there's
  * no reason to make the client type (or accidentally delete) that fixed
- * part. The UI below shows it as a locked prefix and only takes the number;
- * this turns what's typed into the full link, and turns a saved link back
- * into just the number for editing.
+ * part. The UI below shows it as a locked prefix and only takes the number.
+ *
+ * The field stores JUST the raw digits the person types (button.url), same
+ * as the Call button's phone number field — no "91" is added here, and
+ * nothing is round-tripped back through a derived value on every keystroke
+ * (that round-trip was what caused "91" to double up). The real
+ * https://wa.me/<number> link — with the country code auto-detected and
+ * added exactly once — is built on the backend only where it's actually
+ * needed to send or submit (lib/whatsappMessage.ts's toWaMeUrl,
+ * lib/metaTemplates.ts's toMetaButtons), exactly like the Call button's
+ * number is completed with a country code only at Meta submission time.
  */
 const WA_BASE_URL = "https://wa.me/";
-
-/** Displays the number portion of a saved wa.me link for editing — strips
- * a leading "91" only when the rest still looks like a full 10-digit local
- * number, so editing doesn't show a confusing extra "91" in front. */
-function extractWaNumber(url: string): string {
-  const digits = (url.startsWith(WA_BASE_URL) ? url.slice(WA_BASE_URL.length) : url).replace(/\D/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
-  return digits;
-}
-
-/** Builds the real https://wa.me/... link from just the number typed —
- * a plain 10-digit local number gets "91" prepended automatically (nobody
- * should have to remember to type it), while anything already 11+ digits
- * (i.e. already has a country code) is used as-is. */
-function buildWaUrl(input: string): string {
-  const digits = input.replace(/\D/g, "");
-  if (!digits) return "";
-  const withCountryCode = digits.length > 10 ? digits : `91${digits}`;
-  return `${WA_BASE_URL}${withCountryCode}`;
-}
 
 type Errors = Partial<Record<"name" | "body" | "media" | "buttons" | "header" | "footer", string>>;
 
@@ -188,7 +176,7 @@ export default function TemplateBuilder({
           id: `btn-${Date.now()}-${draft.buttons.length}`,
           kind,
           label: kind === "whatsapp" ? "Chat with us" : kind === "call" ? "Call us" : "",
-          url: kind === "whatsapp" ? "https://wa.me/" : "",
+          url: "",
         },
       ],
     });
@@ -299,7 +287,7 @@ export default function TemplateBuilder({
       onClose={() => !busy && onClose()}
       title={editing ? `Edit ${editing.name}` : "Create custom template"}
       description="Custom templates are your own — not submitted to Meta for approval."
-      size="lg"
+      size="xl"
       footer={
         <>
           <Button onClick={onClose} disabled={busy}>
@@ -563,19 +551,19 @@ export default function TemplateBuilder({
                               </span>
                               <input
                                 type="text"
-                                value={extractWaNumber(button.url)}
+                                value={button.url.replace(/\D/g, "")}
                                 placeholder={meta.placeholder}
-                                onChange={(e) =>
+                                onChange={(e) => {
+                                  const digits = e.target.value.replace(/\D/g, "");
                                   patch({
                                     buttons: draft.buttons.map((item, i) =>
-                                      i === index ? { ...item, url: buildWaUrl(e.target.value) } : item
+                                      i === index ? { ...item, url: digits } : item
                                     ),
-                                  })
-                                }
+                                  });
+                                }}
                                 className="h-full min-w-0 flex-1 px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                               />
                             </div>
-                            <p className="mt-1 text-xs text-slate-400">Just the number — 91 is added automatically.</p>
                           </div>
                         ) : (
                           <FormField

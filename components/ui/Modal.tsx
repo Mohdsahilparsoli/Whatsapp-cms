@@ -19,7 +19,7 @@ export default function Modal({
   description?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
 }) {
   useEffect(() => {
     if (!open) return;
@@ -36,7 +36,7 @@ export default function Modal({
 
   if (!open) return null;
 
-  const sizes = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" } as const;
+  const sizes = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl", xl: "max-w-6xl" } as const;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">

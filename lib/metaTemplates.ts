@@ -1,6 +1,6 @@
 import "server-only";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
-import type { BuiltMessage } from "@/lib/whatsappMessage";
+import { toWaMeUrl, type BuiltMessage } from "@/lib/whatsappMessage";
 
 /**
  * The real Meta WhatsApp Message Template system — submission (including
@@ -122,17 +122,24 @@ function sanitizePhoneNumber(raw: string, defaultCallingCode: string | null): st
 
 /** "whatsapp"-kind buttons are also URL-shaped in this app (see
  * lib/whatsappMessage.ts's ctaButton matcher) — both map to Meta's "URL"
- * button type; only "call" maps to "PHONE_NUMBER". */
+ * button type; only "call" maps to "PHONE_NUMBER". A "whatsapp" button's
+ * `url` is just the raw number the person typed (see TemplateBuilder), so
+ * it's turned into the real https://wa.me/<number> link here — with the
+ * same auto-detected country code as the Call button — rather than in the
+ * browser on every keystroke, which is what caused the country code to
+ * double up before. */
 function toMetaButtons(buttons: ButtonLike[], defaultCallingCode: string | null) {
-  return buttons.slice(0, 3).map((b) =>
-    b.kind === "call"
-      ? {
-          type: "PHONE_NUMBER",
-          text: b.label.slice(0, 20) || "Call",
-          phone_number: sanitizePhoneNumber(b.url, defaultCallingCode),
-        }
-      : { type: "URL", text: b.label.slice(0, 20) || "Open", url: b.url }
-  );
+  return buttons.slice(0, 3).map((b) => {
+    if (b.kind === "call") {
+      return {
+        type: "PHONE_NUMBER",
+        text: b.label.slice(0, 20) || "Call",
+        phone_number: sanitizePhoneNumber(b.url, defaultCallingCode),
+      };
+    }
+    const url = b.kind === "whatsapp" ? toWaMeUrl(b.url, defaultCallingCode) : b.url;
+    return { type: "URL", text: b.label.slice(0, 20) || "Open", url };
+  });
 }
 
 function variableIndices(text: string): number[] {
