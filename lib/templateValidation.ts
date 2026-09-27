@@ -120,6 +120,12 @@ export function validateTemplateFields(t: NormalizedTemplate): Record<string, st
     const badButton = t.buttons.find((b) => {
       if (!b.label) return true;
       if (b.kind === "call") return b.url.replace(/\D/g, "").length < 7;
+      // A WhatsApp chat button is always "https://wa.me/<number>" (the
+      // builder's UI only lets the number be typed — see
+      // components/templates/TemplateBuilder.tsx), so "enough digits" is
+      // the real check here, not just "looks like a URL" — an empty number
+      // still leaves a string that matches the URL regex below.
+      if (b.kind === "whatsapp") return b.url.replace(/\D/g, "").length < 7;
       return !/^https?:\/\/.+/.test(b.url);
     });
     if (badButton) {

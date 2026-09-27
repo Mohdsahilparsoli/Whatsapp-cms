@@ -46,9 +46,38 @@ const buttonMeta: Record<
   { label: string; icon: React.ComponentType<{ className?: string }>; valueLabel: string; placeholder: string }
 > = {
   url: { label: "Primary button (URL)", icon: ExternalLink, valueLabel: "URL", placeholder: "https://example.com/offer" },
-  call: { label: "Call button", icon: Phone, valueLabel: "Phone number (country code optional — auto-detected)", placeholder: "98110 22331" },
-  whatsapp: { label: "WhatsApp chat button", icon: MessageCircle, valueLabel: "URL", placeholder: "https://wa.me/919000000000" },
+  call: { label: "Call button", icon: Phone, valueLabel: "Phone number", placeholder: "98110 22331" },
+  whatsapp: { label: "WhatsApp chat button", icon: MessageCircle, valueLabel: "WhatsApp number", placeholder: "98110 22331" },
 };
+
+/**
+ * The WhatsApp chat button always links to https://wa.me/<number> — there's
+ * no reason to make the client type (or accidentally delete) that fixed
+ * part. The UI below shows it as a locked prefix and only takes the number;
+ * this turns what's typed into the full link, and turns a saved link back
+ * into just the number for editing.
+ */
+const WA_BASE_URL = "https://wa.me/";
+
+/** Displays the number portion of a saved wa.me link for editing — strips
+ * a leading "91" only when the rest still looks like a full 10-digit local
+ * number, so editing doesn't show a confusing extra "91" in front. */
+function extractWaNumber(url: string): string {
+  const digits = (url.startsWith(WA_BASE_URL) ? url.slice(WA_BASE_URL.length) : url).replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  return digits;
+}
+
+/** Builds the real https://wa.me/... link from just the number typed —
+ * a plain 10-digit local number gets "91" prepended automatically (nobody
+ * should have to remember to type it), while anything already 11+ digits
+ * (i.e. already has a country code) is used as-is. */
+function buildWaUrl(input: string): string {
+  const digits = input.replace(/\D/g, "");
+  if (!digits) return "";
+  const withCountryCode = digits.length > 10 ? digits : `91${digits}`;
+  return `${WA_BASE_URL}${withCountryCode}`;
+}
 
 type Errors = Partial<Record<"name" | "body" | "media" | "buttons" | "header" | "footer", string>>;
 
@@ -223,6 +252,10 @@ export default function TemplateBuilder({
     const badButton = draft.buttons.find((button) => {
       if (!button.label.trim()) return true;
       if (button.kind === "call") return button.url.replace(/\D/g, "").length < 7;
+      // A WhatsApp chat button's url is always the fixed "https://wa.me/"
+      // prefix + whatever number was typed above — so "enough digits" is
+      // the real check, since an empty number still passes the URL regex.
+      if (button.kind === "whatsapp") return button.url.replace(/\D/g, "").length < 7;
       return !/^https?:\/\/.+/.test(button.url.trim());
     });
     if (badButton)
@@ -521,18 +554,43 @@ export default function TemplateBuilder({
                           }
                           placeholder={meta.label === "Call button" ? "Call us" : "View collection"}
                         />
-                        <FormField
-                          label={meta.valueLabel}
-                          value={button.url}
-                          onChange={(value) =>
-                            patch({
-                              buttons: draft.buttons.map((item, i) =>
-                                i === index ? { ...item, url: value } : item
-                              ),
-                            })
-                          }
-                          placeholder={meta.placeholder}
-                        />
+                        {button.kind === "whatsapp" ? (
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700">{meta.valueLabel}</label>
+                            <div className="mt-1.5 flex h-9 items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100">
+                              <span className="flex items-center bg-slate-50 px-2.5 text-xs text-slate-500">
+                                {WA_BASE_URL}
+                              </span>
+                              <input
+                                type="text"
+                                value={extractWaNumber(button.url)}
+                                placeholder={meta.placeholder}
+                                onChange={(e) =>
+                                  patch({
+                                    buttons: draft.buttons.map((item, i) =>
+                                      i === index ? { ...item, url: buildWaUrl(e.target.value) } : item
+                                    ),
+                                  })
+                                }
+                                className="h-full min-w-0 flex-1 px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                              />
+                            </div>
+                            <p className="mt-1 text-xs text-slate-400">Just the number — 91 is added automatically.</p>
+                          </div>
+                        ) : (
+                          <FormField
+                            label={meta.valueLabel}
+                            value={button.url}
+                            onChange={(value) =>
+                              patch({
+                                buttons: draft.buttons.map((item, i) =>
+                                  i === index ? { ...item, url: value } : item
+                                ),
+                              })
+                            }
+                            placeholder={meta.placeholder}
+                          />
+                        )}
                       </div>
                     </li>
                   );
