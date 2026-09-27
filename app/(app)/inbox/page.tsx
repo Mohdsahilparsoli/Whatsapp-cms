@@ -297,7 +297,11 @@ export default function InboxPage() {
                         <img
                           src={message.mediaUrl}
                           alt={message.mediaFileName ?? "Photo"}
-                          className="mb-1.5 max-h-64 w-full rounded-lg object-cover"
+                          // object-cover + a fixed height cropped every photo to
+                          // fit a box, unlike real WhatsApp which shows the
+                          // whole image at its own aspect ratio. object-contain
+                          // + auto width/height (capped, not forced) fixes that.
+                          className="mb-1.5 h-auto max-h-80 w-auto max-w-full rounded-lg object-contain"
                         />
                       )}
                       {message.type === "image" && !message.mediaUrl && (

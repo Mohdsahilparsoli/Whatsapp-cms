@@ -3,8 +3,9 @@ import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import type { BuiltMessage } from "@/lib/whatsappMessage";
 
 /**
- * The real Meta WhatsApp Message Template system — submission, status
- * checks, and the type:"template" send payload.
+ * The real Meta WhatsApp Message Template system — submission (including
+ * media headers via the Resumable Upload API), status checks, and the
+ * type:"template" send payload.
  *
  * Why this exists: free-form/interactive messages (lib/whatsappMessage.ts)
  * can only ever carry ONE button, and only a URL button — there is no
@@ -13,11 +14,13 @@ import type { BuiltMessage } from "@/lib/whatsappMessage";
  * Quick Reply), which is the only real way to send a Call button alongside
  * another button. That's the whole point of this file.
  *
- * Scope: TEXT-only headers for now. A media (image/video/document) header
- * needs Meta's separate Resumable Upload API to get a `header_handle`
- * before submission — not implemented yet; submitting a template with a
- * media header is rejected up front by the /submit route with a clear
- * message instead of silently failing against Meta.
+ * Media (image/video/document) headers are supported for submission via
+ * Meta's separate Resumable Upload API (uploadMediaHandle below) — it turns
+ * one of our already-uploaded template files (Vercel Blob URL, or local
+ * disk in dev) into the one-time `header_handle` Meta needs at submission
+ * time. Sending an approved media-header template is different again: Meta
+ * wants the media re-supplied as a `link` in the header component every
+ * time you send (see buildTemplateSendPayload), not the handle.
  */
 
 export type MetaTemplateStatus =
@@ -103,6 +106,8 @@ function variableIndices(text: string): number[] {
   return Array.from(indices).sort((a, b) => a - b);
 }
 
+type MediaKind = "none" | "image" | "video" | "document";
+
 export interface SubmittableTemplate {
   name: string;
   language: string;
@@ -111,16 +116,95 @@ export interface SubmittableTemplate {
   body: string;
   footer: string | null;
   buttons: ButtonLike[];
+  mediaKind: MediaKind;
+  /** This template's saved media file — a Vercel Blob URL in production, or
+   * a relative /uploads/... path in local dev (needs `origin` to resolve). */
+  mediaUrl: string | null;
+  /** This app's own base URL, only needed to turn a relative mediaUrl into
+   * something both we and Meta can fetch over the internet. */
+  origin: string;
 }
+
+/**
+ * Real upload to Meta's Resumable Upload API — the only way to get a
+ * `header_handle` Meta will accept for a media (image/video/document)
+ * HEADER component at template submission time. Two real calls:
+ *   1. POST /{app-id}/uploads — starts an upload session sized for this
+ *      exact file, returns an "upload:..." session id.
+ *   2. POST /{session-id} with the raw file bytes and `file_offset: 0` —
+ *      returns the file handle ("h") to reference in the template
+ *      submission's HEADER component.
+ * Needs NEXT_PUBLIC_META_APP_ID (already used for Embedded Signup) — the
+ * Resumable Upload API is scoped to the Meta App, not the WABA/phone number.
+ */
+async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: string): Promise<string | null> {
+  const appId = process.env.NEXT_PUBLIC_META_APP_ID;
+  if (!appId) return null;
+
+  const fileUrl = mediaUrl.startsWith("http") ? mediaUrl : `${origin}${mediaUrl}`;
+
+  try {
+    const fileRes = await fetch(fileUrl);
+    if (!fileRes.ok) return null;
+    const buffer = Buffer.from(await fileRes.arrayBuffer());
+    const contentType = fileRes.headers.get("content-type") ?? "application/octet-stream";
+
+    const sessionRes = await fetch(
+      `https://graph.facebook.com/v25.0/${appId}/uploads?file_length=${buffer.length}&file_type=${encodeURIComponent(
+        contentType
+      )}&access_token=${encodeURIComponent(accessToken)}`,
+      { method: "POST" }
+    );
+    const session: { id?: string } = await sessionRes.json().catch(() => ({}));
+    if (!sessionRes.ok || !session.id) return null;
+
+    const uploadRes = await fetch(`https://graph.facebook.com/v25.0/${session.id}`, {
+      method: "POST",
+      headers: {
+        Authorization: `OAuth ${accessToken}`,
+        file_offset: "0",
+      },
+      body: buffer,
+    });
+    const uploaded: { h?: string } = await uploadRes.json().catch(() => ({}));
+    if (!uploadRes.ok || !uploaded.h) return null;
+    return uploaded.h;
+  } catch {
+    return null;
+  }
+}
+
+export type BuildComponentsResult =
+  | { ok: true; components: Record<string, unknown>[] }
+  | { ok: false; error: string };
 
 /** Builds the `components` array Meta's Message Templates API expects.
  * {{1}} is always the recipient's own name by this app's convention (see
  * lib/personalize.ts) — Meta doesn't know that, it just needs a plausible
- * example value for each placeholder to accept the submission. */
-export function buildTemplateComponents(t: SubmittableTemplate): Record<string, unknown>[] {
+ * example value for each placeholder to accept the submission. Async
+ * because a media header needs a real round-trip to Meta first
+ * (uploadMediaHandle) to get its header_handle. */
+export async function buildTemplateComponents(
+  t: SubmittableTemplate,
+  accessToken: string
+): Promise<BuildComponentsResult> {
   const components: Record<string, unknown>[] = [];
 
-  if (t.header) {
+  if (t.mediaKind !== "none" && t.mediaUrl) {
+    const handle = await uploadMediaHandle(accessToken, t.mediaUrl, t.origin);
+    if (!handle) {
+      return {
+        ok: false,
+        error:
+          "Could not upload this template's media to Meta — check NEXT_PUBLIC_META_APP_ID is set and the file is reachable.",
+      };
+    }
+    components.push({
+      type: "HEADER",
+      format: t.mediaKind.toUpperCase(),
+      example: { header_handle: [handle] },
+    });
+  } else if (t.header) {
     const indices = variableIndices(t.header);
     components.push({
       type: "HEADER",
@@ -149,7 +233,7 @@ export function buildTemplateComponents(t: SubmittableTemplate): Record<string, 
     components.push({ type: "BUTTONS", buttons: toMetaButtons(t.buttons) });
   }
 
-  return components;
+  return { ok: true, components };
 }
 
 export type MetaSubmitResult =
@@ -181,7 +265,9 @@ export async function submitTemplateToMeta(
   }
 
   const languageCode = toMetaLanguageCode(t.language);
-  const components = buildTemplateComponents(t);
+  const built = await buildTemplateComponents(t, credentials.accessToken);
+  if (!built.ok) return { ok: false, error: built.error };
+  const components = built.components;
 
   try {
     const res = await fetch(`https://graph.facebook.com/v25.0/${credentials.wabaId}/message_templates`, {
@@ -260,14 +346,33 @@ export async function fetchTemplateStatusFromMeta(
  * approved template it has on file. We must NOT fillTemplate() first, or
  * Meta will reject the send because the text no longer matches what it
  * approved.
+ *
+ * A media-header template is different again: unlike the one-time
+ * `header_handle` used at submission (uploadMediaHandle), Meta wants the
+ * actual media re-supplied as a `link` in the header component on EVERY
+ * send — the approved handle isn't reusable for sending.
  */
 export function buildTemplateSendPayload(
-  t: { name: string; metaLanguageCode: string; header: string | null; body: string },
-  values: string[]
+  t: {
+    name: string;
+    metaLanguageCode: string;
+    header: string | null;
+    body: string;
+    mediaKind?: "none" | "image" | "video" | "document";
+    mediaUrl?: string | null;
+  },
+  values: string[],
+  origin?: string
 ): BuiltMessage {
   const components: Record<string, unknown>[] = [];
 
-  if (t.header) {
+  if (t.mediaKind && t.mediaKind !== "none" && t.mediaUrl) {
+    const absoluteUrl = t.mediaUrl.startsWith("http") ? t.mediaUrl : `${origin ?? ""}${t.mediaUrl}`;
+    components.push({
+      type: "header",
+      parameters: [{ type: t.mediaKind, [t.mediaKind]: { link: absoluteUrl } }],
+    });
+  } else if (t.header) {
     const indices = variableIndices(t.header);
     if (indices.length > 0) {
       components.push({

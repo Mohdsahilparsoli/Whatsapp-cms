@@ -39,8 +39,11 @@ export function buildPayloadForContact(
         metaLanguageCode: template.metaLanguageCode,
         header: template.header,
         body: template.body,
+        mediaKind: template.mediaKind,
+        mediaUrl: template.mediaUrl,
       },
-      values
+      values,
+      origin
     ).payload;
   }
 

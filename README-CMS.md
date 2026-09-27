@@ -389,11 +389,17 @@ template to Meta for review, and once **approved**, send it via the
   else keeps using the existing free-form/interactive path. Nothing else
   about Bulk Sender/Campaigns changes — {{1}} still auto-fills with each
   contact's own name either way (`lib/personalize.ts`).
-- **Scope: text-only headers for now.** A media (image/video/document)
-  header needs Meta's separate Resumable Upload API to get a
-  `header_handle` before submission — not built yet. Submitting a template
-  with a media header is rejected up front with a clear message instead of
-  failing against Meta with a confusing error.
+- **Media headers (image/video/document) are supported too.** Submitting one
+  calls Meta's separate **Resumable Upload API** first (`uploadMediaHandle`
+  in `lib/metaTemplates.ts` — two real calls: open an upload session sized
+  for the file, then upload the bytes) to turn the template's already-
+  uploaded file into the one-time `header_handle` Meta needs at submission.
+  **Sending** an approved media-header template is different again — Meta
+  wants the media re-supplied as a real `link` in the header component on
+  every send (not the handle), which `buildTemplateSendPayload` does using
+  the same file. Needs `NEXT_PUBLIC_META_APP_ID` set (already required for
+  Embedded Signup) — the Resumable Upload API is scoped to the Meta App,
+  not the WABA/phone number.
 
 **You need to do two things for this to work in production:**
 

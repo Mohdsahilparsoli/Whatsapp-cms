@@ -16,7 +16,7 @@ type Params = { params: Promise<{ id: string }> };
  * automatically switch to the real type:"template" API — see
  * buildPayloadForContact in lib/queueProcessor.ts.
  */
-export async function POST(_request: Request, { params }: Params) {
+export async function POST(request: Request, { params }: Params) {
   const auth = await requireClient();
   if (auth instanceof NextResponse) return auth;
 
@@ -38,15 +38,6 @@ export async function POST(_request: Request, { params }: Params) {
   if (template.metaStatus === "approved") {
     return NextResponse.json({ error: "This template is already approved by Meta." }, { status: 400 });
   }
-  if (template.mediaKind !== "none") {
-    return NextResponse.json(
-      {
-        error:
-          "Only text-only templates can be submitted to Meta right now — an image/video/document header needs a separate upload step this app doesn't support yet. Remove the media, or keep sending this one as a free-form message.",
-      },
-      { status: 400 }
-    );
-  }
 
   const result = await submitTemplateToMeta(auth.clientId, {
     name: template.name,
@@ -58,6 +49,9 @@ export async function POST(_request: Request, { params }: Params) {
     buttons: Array.isArray(template.buttons)
       ? (template.buttons as { kind: TemplateButtonKind; label: string; url: string }[])
       : [],
+    mediaKind: template.mediaKind,
+    mediaUrl: template.mediaUrl,
+    origin: new URL(request.url).origin,
   });
 
   if (!result.ok) {
