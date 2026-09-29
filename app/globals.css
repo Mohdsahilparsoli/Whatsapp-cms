@@ -22,6 +22,15 @@ body {
   outline-offset: 2px;
 }
 
+/* Real hand cursor on every clickable button across the whole app —
+   Tailwind's preflight resets <button> to cursor: default, so without
+   this every button (including third-party/base ones already using plain
+   <button>) shows the plain arrow instead of a hand on hover. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

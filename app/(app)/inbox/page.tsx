@@ -91,6 +91,10 @@ export default function InboxPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Throttles the real "typing…" indicator shown on the customer's own
+  // WhatsApp — Meta dismisses it after ~25s, so there's no point re-firing
+  // on every keystroke; this just remembers when it was last sent.
+  const lastTypingSentAtRef = useRef(0);
 
   // In-chat search — real WhatsApp doesn't hide non-matching messages, it
   // highlights matches and lets you step through them, so that's what this
@@ -282,8 +286,22 @@ export default function InboxPage() {
     setReplyTo(null);
     setLightbox(null);
     exitSelectMode();
+    lastTypingSentAtRef.current = 0;
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)));
     fetch(`/api/inbox/conversations/${id}/read`, { method: "POST" }).catch(() => {});
+  }
+
+  function handleDraftChange(value: string) {
+    setDraft(value);
+    if (!active) return;
+    // Meta shows the indicator for ~25s and clears it on send, so firing
+    // this on every keystroke would be wasted calls — once every ~20s of
+    // active typing is enough to keep it lit.
+    const now = Date.now();
+    if (now - lastTypingSentAtRef.current > 20000) {
+      lastTypingSentAtRef.current = now;
+      fetch(`/api/inbox/conversations/${active.id}/typing`, { method: "POST" }).catch(() => {});
+    }
   }
 
   async function sendReply(e: FormEvent) {
@@ -831,7 +849,7 @@ export default function InboxPage() {
                   </Button>
                   <input
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={(e) => handleDraftChange(e.target.value)}
                     aria-label="Type a reply"
                     placeholder={
                       active.consent === "opted_out"
