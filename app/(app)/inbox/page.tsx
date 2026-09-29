@@ -472,7 +472,7 @@ export default function InboxPage() {
                     <div
                       key={message.id}
                       id={`msg-${message.id}`}
-                      className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm transition-colors ${
+                      className={`w-fit max-w-[75%] min-w-[3.5rem] break-words rounded-2xl px-3.5 py-2 text-sm transition-colors ${
                         message.direction === "outbound"
                           ? "ml-auto rounded-tr-sm bg-emerald-100 text-slate-800"
                           : "rounded-tl-sm bg-white text-slate-800 ring-1 ring-slate-200"
