@@ -72,7 +72,7 @@ export default function ClientAdminDashboard() {
     // Keeps the "New messages" card and the rest of this dashboard current
     // without a manual refresh — a new WhatsApp reply shouldn't need a page
     // reload to show up here.
-    const interval = setInterval(() => load(false), 15000);
+    const interval = setInterval(() => load(false), 8000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -132,35 +132,7 @@ export default function ClientAdminDashboard() {
         <LoadingState rows={3} label="Loading dashboard" />
       ) : (
         <>
-          {(data?.unreadMessages.total ?? 0) > 0 && (
-            <Link
-              href={
-                data!.unreadMessages.conversations.length === 1
-                  ? `/inbox?c=${data!.unreadMessages.conversations[0].id}`
-                  : "/inbox"
-              }
-              className="mb-5 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 transition-colors hover:bg-red-100"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-white">
-                <MessageCircle className="h-4 w-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-red-800">
-                  {data!.unreadMessages.total} new message{data!.unreadMessages.total === 1 ? "" : "s"} waiting
-                </p>
-                <p className="truncate text-xs text-red-600">
-                  {data!.unreadMessages.conversations
-                    .slice(0, 3)
-                    .map((c) => c.contactName || c.contactPhone)
-                    .join(", ")}
-                  {data!.unreadMessages.conversations.length > 3 ? "…" : ""}
-                </p>
-              </div>
-              <span className="shrink-0 text-xs font-medium text-red-700">Open Inbox →</span>
-            </Link>
-          )}
-
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7">
             <StatCard label="Total contacts" value={formatNumber(data?.totalContacts ?? 0)} icon={Users} />
             <StatCard label="Active campaigns" value={data?.activeCampaigns ?? 0} icon={MessageSquare} />
             <StatCard label="Messages sent" value={formatNumber(data?.totals.sent ?? 0)} icon={Send} />
@@ -177,6 +149,21 @@ export default function ClientAdminDashboard() {
               icon={XCircle}
               tone="negative"
             />
+            {/* New messages — how many PEOPLE have an unread reply waiting, not
+                how many messages arrived (someone who sent 5 messages still
+                counts once). Who they are shows up in the header bell, not
+                here — this tile is just the number, like every other stat
+                card. A conversation currently open in the Inbox is excluded
+                automatically (it's kept at unreadCount 0 the whole time it's
+                open), so this never counts a chat someone's already in. */}
+            <Link href="/inbox" className="block">
+              <StatCard
+                label="New messages"
+                value={data?.unreadMessages.conversations.length ?? 0}
+                icon={MessageCircle}
+                tone={(data?.unreadMessages.conversations.length ?? 0) > 0 ? "negative" : "default"}
+              />
+            </Link>
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-3">
@@ -273,7 +260,7 @@ export default function ClientAdminDashboard() {
                 </Link>
               }
             />
-            <ul className="divide-y divide-slate-100">
+            <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
               {(data?.recentMessages ?? []).length === 0 && (
                 <li className="px-5 py-6 text-sm text-slate-400">
                   No messages sent yet — try Bulk Sender or a Campaign.

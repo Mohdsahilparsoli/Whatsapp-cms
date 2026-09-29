@@ -27,7 +27,10 @@ export async function GET() {
       prisma.messageRecord.findMany({
         where: { clientId: auth.clientId },
         orderBy: { createdAt: "desc" },
-        take: 4,
+        // The dashboard card now scrolls (fixed height) instead of only ever
+        // showing the last handful, so there's actually something to scroll
+        // through.
+        take: 20,
       }),
       // Real unread WhatsApp replies for the "New messages" urgent card. A
       // conversation currently open in the Inbox is kept at unreadCount 0 in

@@ -144,6 +144,10 @@ export default function Topbar({
         {openMenu === "bell" && (
           <div className="absolute right-0 top-12 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
             <p className="px-2 py-1.5 text-xs font-semibold text-slate-500">Notifications</p>
+            {/* Fixed height + scroll — a busy inbox day can produce more
+                items than fit, and this panel shouldn't grow to push past
+                the bottom of the screen. */}
+            <div className="max-h-80 overflow-y-auto">
             {!notificationsLoaded ? (
               <p className="px-2 py-3 text-xs text-slate-400">Loading…</p>
             ) : notifications.length === 0 ? (
@@ -170,6 +174,7 @@ export default function Topbar({
                 )
               )
             )}
+            </div>
           </div>
         )}
 
