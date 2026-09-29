@@ -142,11 +142,26 @@ export default function InboxPage() {
     setSelectedIds(new Set());
   }
 
+  // Mirrors activeId for use inside loadConversations without making that
+  // callback depend on (and get recreated by) activeId changing.
+  const activeIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
   const loadConversations = useCallback(async () => {
     try {
       const res = await fetch("/api/inbox/conversations");
       const data = await res.json();
-      setConversations(data.conversations ?? []);
+      const list: ConversationSummary[] = data.conversations ?? [];
+      // The conversation the agent currently has open is being marked read
+      // in real time (see the polling effect below) — if a message lands
+      // between that read call and this refresh, don't let the server's
+      // still-stale count flash the sidebar back to "unread" for a chat
+      // that's sitting open right in front of the agent.
+      setConversations(
+        list.map((c) => (c.id === activeIdRef.current ? { ...c, unreadCount: 0 } : c))
+      );
     } catch {
       // keep whatever was already shown
     }
@@ -181,7 +196,15 @@ export default function InboxPage() {
     // app/(app)/clients/page.tsx.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadActiveMessages(activeId);
-    const interval = setInterval(() => loadActiveMessages(activeId), 4000);
+    // Keep telling Meta (and our own unreadCount) that this conversation is
+    // read for as long as it's sitting open — otherwise a message arriving
+    // while the agent is already looking at the chat would still bump the
+    // sidebar's unread count, even though nothing here is actually unread.
+    fetch(`/api/inbox/conversations/${activeId}/read`, { method: "POST" }).catch(() => {});
+    const interval = setInterval(() => {
+      loadActiveMessages(activeId);
+      fetch(`/api/inbox/conversations/${activeId}/read`, { method: "POST" }).catch(() => {});
+    }, 4000);
     return () => clearInterval(interval);
   }, [activeId, loadActiveMessages]);
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -25,11 +26,46 @@ export function SidebarNav({
   // nested routes (e.g. /contacts/import) never highlight two items at once.
   const activeHref = getPageMeta(pathname).navHref;
 
+  // Total unread across every Inbox conversation — polled from wherever the
+  // sidebar is mounted (i.e. every page), so it's visible the moment someone
+  // logs in, not only once they open the Inbox itself.
+  const hasInboxNav = items.some((item) => item.href === "/inbox");
+  const [unreadTotal, setUnreadTotal] = useState(0);
+
+  useEffect(() => {
+    if (!hasInboxNav) return;
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const res = await fetch("/api/inbox/conversations");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const total = (data.conversations ?? []).reduce(
+          (sum: number, c: { unreadCount?: number }) => sum + (c.unreadCount ?? 0),
+          0
+        );
+        setUnreadTotal(total);
+      } catch {
+        // keep showing whatever was last known
+      }
+    }
+
+    poll();
+    const interval = setInterval(poll, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hasInboxNav]);
+
   return (
     <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-2 py-3" aria-label="Main">
       {items.map((item) => {
         const active = item.href === activeHref;
         const Icon = item.icon;
+        const showUnreadBadge = item.href === "/inbox" && unreadTotal > 0;
         return (
           <Link
             key={item.href + item.label}
@@ -46,8 +82,25 @@ export function SidebarNav({
               collapsed && "justify-center px-2"
             )}
           >
-            <Icon className="h-4 w-4 shrink-0" />
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            <span className="relative shrink-0">
+              <Icon className="h-4 w-4" />
+              {showUnreadBadge && collapsed && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"
+                />
+              )}
+            </span>
+            {!collapsed && (
+              <span className="flex flex-1 items-center justify-between gap-2 truncate">
+                <span className="truncate">{item.label}</span>
+                {showUnreadBadge && (
+                  <span className="flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-semibold text-white">
+                    {unreadTotal > 99 ? "99+" : unreadTotal}
+                  </span>
+                )}
+              </span>
+            )}
           </Link>
         );
       })}
