@@ -524,6 +524,16 @@ model ChatMessage {
   whatsappMessageId String? @unique
   status            String  @default("sent") // sent | delivered | read | failed — outbound only
 
+  /// Which campaign/template this OUTBOUND message came from, if it was a
+  /// campaign/bulk send rather than a manual Inbox reply — lets the Inbox
+  /// show "sent via <campaign> using <template>" context on the message, so
+  /// an agent reading a reply like "I am interested" can tell what it was
+  /// a reply to. Null for manual replies and all inbound messages.
+  campaignId   String?
+  campaignName String?
+  templateId   String?
+  templateName String?
+
   createdAt DateTime @default(now())
 
   @@index([conversationId])

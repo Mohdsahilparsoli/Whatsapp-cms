@@ -143,6 +143,41 @@ async function recordMessage(
   } else {
     await prisma.messageRecord.create({ data });
   }
+
+  // Also log a successful send into the real Inbox conversation thread —
+  // same upsert-by-phone pattern app/api/whatsapp/send-test/route.ts uses
+  // for manual replies — so campaign/bulk sends actually show up in the
+  // Inbox next to the customer's replies, carrying which campaign/template
+  // sent them (see the ChatMessage.campaignId/templateId comment in
+  // schema.prisma). Wrapped so a failure here never breaks the real
+  // MessageRecord write above, which is what Message Status/Queue read.
+  if (result.ok) {
+    try {
+      const phone = contact.phone.replace(/\D/g, "");
+      const conversation = await prisma.conversation.upsert({
+        where: { clientId_contactPhone: { clientId: ctx.clientId, contactPhone: phone } },
+        update: { contactName: contact.name ?? undefined, lastMessageAt: new Date() },
+        create: { clientId: ctx.clientId, contactPhone: phone, contactName: contact.name ?? null },
+      });
+      await prisma.chatMessage.create({
+        data: {
+          conversationId: conversation.id,
+          clientId: ctx.clientId,
+          direction: "outbound",
+          type: "text",
+          text: ctx.preview,
+          whatsappMessageId: result.whatsappMessageId,
+          status: "sent",
+          campaignId: ctx.campaignId ?? null,
+          campaignName: ctx.campaignName ?? null,
+          templateId: ctx.templateId ?? null,
+          templateName: ctx.templateName ?? null,
+        },
+      });
+    } catch (err) {
+      console.error("queueProcessor: failed to log campaign send into Inbox", err);
+    }
+  }
 }
 
 /** Sends a batch of contacts, spacing sends out to respect messagesPerMinute,

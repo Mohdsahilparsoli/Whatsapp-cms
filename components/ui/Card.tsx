@@ -2,9 +2,11 @@ import { cn } from "@/lib/utils";
 
 export default function Card({
   className,
+  style,
   children,
 }: {
   className?: string;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
   return (
@@ -13,6 +15,7 @@ export default function Card({
         "rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
         className
       )}
+      style={style}
     >
       {children}
     </div>

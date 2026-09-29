@@ -1,13 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Check, CheckCheck, FileText, Info, Loader2, Paperclip, Send } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  Check,
+  CheckCheck,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Info,
+  Loader2,
+  MoreVertical,
+  Paperclip,
+  Search,
+  Send,
+  Trash2,
+  X,
+} from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import SearchInput from "@/components/ui/SearchInput";
 import StatusBadge from "@/components/ui/StatusBadge";
 import EmptyState from "@/components/ui/EmptyState";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { formatDateTime } from "@/lib/utils";
 
 interface ConversationSummary {
@@ -30,8 +45,20 @@ interface RealMessage {
   mediaFileName: string | null;
   whatsappMessageId: string | null;
   status: string;
+  /** Which campaign/template this OUTBOUND message came from, if it was a
+   * campaign/bulk send — null for manual replies and all inbound messages.
+   * Shown as a small context badge so a reply like "I am interested" can be
+   * traced back to what it's actually replying to. */
+  campaignName: string | null;
+  templateName: string | null;
   createdAt: string;
 }
+
+/** The page's own fixed vertical chrome above the Card (Topbar + main's own
+ * padding + PageHeader) — subtracted from 100vh so the Card fills exactly
+ * the rest of the viewport instead of pushing the whole page into scroll.
+ * Only the conversation list and the message thread scroll internally. */
+const CHROME_HEIGHT = "13.5rem";
 
 function Ticks({ status }: { status: string }) {
   if (status === "read") return <CheckCheck className="h-3.5 w-3.5 text-sky-500" aria-label="Read" />;
@@ -52,6 +79,19 @@ export default function InboxPage() {
   const [uploading, setUploading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // In-chat search — real WhatsApp doesn't hide non-matching messages, it
+  // highlights matches and lets you step through them, so that's what this
+  // does too (no new API call needed: every message for an open conversation
+  // is already loaded).
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"clear" | "delete" | null>(null);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -96,6 +136,69 @@ export default function InboxPage() {
     return () => clearInterval(interval);
   }, [activeId, loadActiveMessages]);
 
+  // Real WhatsApp always opens a chat scrolled to the newest message, and
+  // stays pinned there as new messages arrive — this mirrors that instead
+  // of leaving the reader wherever the scroll happened to be.
+  const messageCount = activeMessages.length;
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+  }, [activeId, messageCount]);
+
+  function scrollToTop() {
+    messagesContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function scrollToBottom() {
+    messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }
+
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return activeMessages.filter((m) => m.text.toLowerCase().includes(q)).map((m) => m.id);
+  }, [activeMessages, searchQuery]);
+
+  // Reset back to the first match whenever the query or the open chat
+  // changes. Done during render (React's documented pattern for "adjusting
+  // state when a prop/input changes") rather than in an effect, since
+  // setState synchronously inside an effect body triggers an extra render.
+  const searchResetKey = `${activeId ?? ""}:${searchQuery}`;
+  const [prevSearchResetKey, setPrevSearchResetKey] = useState(searchResetKey);
+  if (searchResetKey !== prevSearchResetKey) {
+    setPrevSearchResetKey(searchResetKey);
+    setMatchIndex(0);
+  }
+
+  useEffect(() => {
+    if (searchMatches.length === 0) return;
+    const id = searchMatches[Math.min(matchIndex, searchMatches.length - 1)];
+    document.getElementById(`msg-${id}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [matchIndex, searchMatches]);
+
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setMatchIndex(0);
+  }
+
+  async function clearChat() {
+    if (!active) return;
+    const res = await fetch(`/api/inbox/conversations/${active.id}/clear`, { method: "POST" });
+    if (res.ok) {
+      setActiveMessages([]);
+      await loadConversations();
+    }
+  }
+
+  async function deleteChat() {
+    if (!active) return;
+    const res = await fetch(`/api/inbox/conversations/${active.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setActiveId(null);
+      setActiveMessages([]);
+      await loadConversations();
+    }
+  }
+
   const filtered = conversations.filter((c) => {
     const q = query.trim().toLowerCase();
     return !q || (c.contactName ?? "").toLowerCase().includes(q) || c.contactPhone.includes(q);
@@ -106,6 +209,8 @@ export default function InboxPage() {
   async function openConversation(id: string) {
     setActiveId(id);
     setSendError(null);
+    setMenuOpen(false);
+    closeSearch();
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)));
     fetch(`/api/inbox/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }
@@ -184,14 +289,17 @@ export default function InboxPage() {
         description="Real conversations — customer replies arrive via Meta's webhook, and replies send a real WhatsApp message."
       />
 
-      <Card className="overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr]">
+      <Card
+        className="overflow-hidden"
+        style={{ height: `calc(100vh - ${CHROME_HEIGHT})`, minHeight: "480px" }}
+      >
+        <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[320px_1fr]">
           {/* Conversation list */}
-          <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
-            <div className="border-b border-slate-200 p-3">
+          <div className="flex min-h-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r">
+            <div className="shrink-0 border-b border-slate-200 p-3">
               <SearchInput value={query} onChange={setQuery} placeholder="Search conversations" />
             </div>
-            <ul className="max-h-[420px] overflow-y-auto lg:max-h-[560px]">
+            <ul className="min-h-0 flex-1 overflow-y-auto">
               {!loading && filtered.length === 0 && (
                 <li>
                   <EmptyState
@@ -240,24 +348,98 @@ export default function InboxPage() {
           </div>
 
           {/* Thread */}
-          <div className="flex min-h-[480px] flex-col">
+          <div className="flex h-full min-h-0 flex-col">
             {active ? (
               <>
-                <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">
                       {active.contactName || active.contactPhone}
                     </p>
                     <p className="text-xs text-slate-400">{active.contactPhone}</p>
                   </div>
-                  <Button size="sm" onClick={() => setShowDetails((s) => !s)}>
-                    <Info className="h-3.5 w-3.5" />
-                    {showDetails ? "Hide details" : "Show details"}
-                  </Button>
+                  <div className="relative flex shrink-0 items-center gap-2">
+                    <Button size="sm" aria-label="Search in this chat" onClick={() => setSearchOpen((s) => !s)}>
+                      <Search className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" onClick={() => setShowDetails((s) => !s)}>
+                      <Info className="h-3.5 w-3.5" />
+                      {showDetails ? "Hide details" : "Show details"}
+                    </Button>
+                    <Button size="sm" aria-label="More options" onClick={() => setMenuOpen((m) => !m)}>
+                      <MoreVertical className="h-3.5 w-3.5" />
+                    </Button>
+                    {menuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                        <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              setConfirmAction("clear");
+                            }}
+                            className="flex w-full items-center px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                          >
+                            Clear chat
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              setConfirmAction("delete");
+                            }}
+                            className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Delete chat
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
+                {searchOpen && (
+                  <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2">
+                    <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                    <input
+                      autoFocus
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search in this chat"
+                      className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                    {searchQuery.trim() && (
+                      <span className="shrink-0 text-xs text-slate-500">
+                        {searchMatches.length > 0 ? `${matchIndex + 1} / ${searchMatches.length}` : "0 / 0"}
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      aria-label="Previous match"
+                      disabled={searchMatches.length === 0}
+                      onClick={() =>
+                        setMatchIndex((i) => (i - 1 + searchMatches.length) % searchMatches.length)
+                      }
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      aria-label="Next match"
+                      disabled={searchMatches.length === 0}
+                      onClick={() => setMatchIndex((i) => (i + 1) % searchMatches.length)}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" aria-label="Close search" onClick={closeSearch}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+
                 {showDetails && (
-                  <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-xs">
+                  <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-xs">
                     <span className="flex items-center gap-1.5 text-slate-500">
                       Consent{" "}
                       {active.consent ? (
@@ -282,16 +464,30 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50/60 px-5 py-4">
+                <div
+                  ref={messagesContainerRef}
+                  className="relative min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50/60 px-5 py-4"
+                >
                   {activeMessages.map((message) => (
                     <div
                       key={message.id}
-                      className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
+                      id={`msg-${message.id}`}
+                      className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm transition-colors ${
                         message.direction === "outbound"
                           ? "ml-auto rounded-tr-sm bg-emerald-100 text-slate-800"
                           : "rounded-tl-sm bg-white text-slate-800 ring-1 ring-slate-200"
+                      } ${
+                        searchMatches[matchIndex] === message.id
+                          ? "ring-2 ring-amber-400"
+                          : ""
                       }`}
                     >
+                      {message.direction === "outbound" && (message.campaignName || message.templateName) && (
+                        <p className="mb-1 truncate text-[11px] font-medium text-emerald-700">
+                          Sent via {message.campaignName ?? "campaign"}
+                          {message.templateName ? ` · ${message.templateName}` : ""}
+                        </p>
+                      )}
                       {message.type === "image" && message.mediaUrl && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -332,15 +528,40 @@ export default function InboxPage() {
                       </p>
                     </div>
                   ))}
+                  <div ref={messagesEndRef} />
+
+                  {/* Jump to top/bottom — one click to the other end of a
+                      long chat, instead of manual scrolling. */}
+                  <div className="pointer-events-none sticky bottom-1 flex justify-end gap-1.5 pr-1">
+                    <button
+                      type="button"
+                      aria-label="Jump to first message"
+                      onClick={scrollToTop}
+                      className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-500 shadow ring-1 ring-slate-200 hover:bg-slate-50"
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Jump to latest message"
+                      onClick={scrollToBottom}
+                      className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-500 shadow ring-1 ring-slate-200 hover:bg-slate-50"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
                 {sendError && (
-                  <div className="border-t border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
+                  <div className="shrink-0 border-t border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
                     {sendError}
                   </div>
                 )}
 
-                <form onSubmit={sendReply} className="flex items-center gap-2 border-t border-slate-200 px-4 py-3">
+                <form
+                  onSubmit={sendReply}
+                  className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-4 py-3"
+                >
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -387,6 +608,24 @@ export default function InboxPage() {
           </div>
         </div>
       </Card>
+
+      <ConfirmDialog
+        open={confirmAction !== null}
+        title={confirmAction === "delete" ? "Delete this chat?" : "Clear this chat?"}
+        message={
+          confirmAction === "delete"
+            ? `This permanently deletes the whole conversation with ${
+                active?.contactName || active?.contactPhone || "this contact"
+              }, including every message. A new message from them later starts a fresh conversation.`
+            : `This permanently deletes every message with ${
+                active?.contactName || active?.contactPhone || "this contact"
+              }, but keeps the conversation itself.`
+        }
+        confirmLabel={confirmAction === "delete" ? "Delete chat" : "Clear chat"}
+        destructive
+        onConfirm={() => (confirmAction === "delete" ? deleteChat() : clearChat())}
+        onClose={() => setConfirmAction(null)}
+      />
     </div>
   );
 }
