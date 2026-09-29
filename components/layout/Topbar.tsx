@@ -14,6 +14,7 @@ interface NotificationItem {
   id: string;
   text: string;
   time: string;
+  href?: string;
 }
 
 export default function Topbar({
@@ -49,7 +50,10 @@ export default function Topbar({
     }
 
     load();
-    const interval = setInterval(load, 60_000); // real events can appear any time (a scheduled campaign firing, a batch failing) — refresh periodically
+    // Real events (a new WhatsApp reply, a campaign finishing, a batch
+    // failing) can land any time — refresh often enough that a new message
+    // shows up here within a few seconds, not a whole minute later.
+    const interval = setInterval(load, 20_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -147,12 +151,24 @@ export default function Topbar({
                 Nothing new — real events (a campaign finishing, a batch failing) will show up here.
               </p>
             ) : (
-              notifications.map((item) => (
-                <div key={item.id} className="rounded-lg px-2 py-2 hover:bg-slate-50">
-                  <p className="text-xs text-slate-700">{item.text}</p>
-                  {item.time && <p className="mt-0.5 text-[11px] text-slate-400">{item.time}</p>}
-                </div>
-              ))
+              notifications.map((item) =>
+                item.href ? (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    onClick={() => setOpenMenu("none")}
+                    className="block rounded-lg px-2 py-2 hover:bg-indigo-50"
+                  >
+                    <p className="text-xs font-medium text-indigo-700">{item.text}</p>
+                    {item.time && <p className="mt-0.5 text-[11px] text-slate-400">{item.time}</p>}
+                  </Link>
+                ) : (
+                  <div key={item.id} className="rounded-lg px-2 py-2 hover:bg-slate-50">
+                    <p className="text-xs text-slate-700">{item.text}</p>
+                    {item.time && <p className="mt-0.5 text-[11px] text-slate-400">{item.time}</p>}
+                  </div>
+                )
+              )
             )}
           </div>
         )}

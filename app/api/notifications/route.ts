@@ -9,6 +9,10 @@ interface NotificationItem {
   text: string;
   time: string;
   at: string;
+  /** Where clicking this notification should take the person. Inbox items
+   * deep-link straight to the conversation (see the `c` query param handled
+   * in app/(app)/inbox/page.tsx) rather than just the Inbox list. */
+  href?: string;
 }
 
 const LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -18,7 +22,7 @@ export async function GET() {
   if (clientId) {
     const since = new Date(Date.now() - LOOKBACK_MS);
 
-    const [completedCampaigns, failedJobs, pendingDrafts] = await Promise.all([
+    const [completedCampaigns, failedJobs, pendingDrafts, unreadConversations] = await Promise.all([
       prisma.campaign.findMany({
         where: { clientId, status: "completed", updatedAt: { gte: since } },
         orderBy: { updatedAt: "desc" },
@@ -30,9 +34,29 @@ export async function GET() {
         take: 5,
       }),
       prisma.campaign.count({ where: { clientId, status: "draft" } }),
+      // Real unread WhatsApp replies — a conversation currently open in the
+      // Inbox is kept at unreadCount 0 in real time (see the Inbox page's
+      // active-conversation read polling), so it naturally drops out of
+      // this list the moment someone is actually looking at it, and comes
+      // right back if they navigate away with it still unread.
+      prisma.conversation.findMany({
+        where: { clientId, unreadCount: { gt: 0 } },
+        orderBy: { lastMessageAt: "desc" },
+        take: 8,
+        select: { id: true, contactName: true, contactPhone: true, unreadCount: true, lastMessageAt: true },
+      }),
     ]);
 
     const items: NotificationItem[] = [
+      ...unreadConversations.map(
+        (c: { id: string; contactName: string | null; contactPhone: string; unreadCount: number; lastMessageAt: Date }) => ({
+          id: `inbox-${c.id}`,
+          text: `${c.unreadCount} new message${c.unreadCount === 1 ? "" : "s"} from ${c.contactName || c.contactPhone}`,
+          time: formatRelativeTime(c.lastMessageAt),
+          at: c.lastMessageAt.toISOString(),
+          href: `/inbox?c=${c.id}`,
+        })
+      ),
       ...completedCampaigns.map(
         (c: { id: string; name: string; sentCount: number; failedCount: number; updatedAt: Date }) => ({
           id: `campaign-${c.id}`,
@@ -58,7 +82,7 @@ export async function GET() {
       });
     }
 
-    return NextResponse.json({ notifications: items.slice(0, 8) });
+    return NextResponse.json({ notifications: items.slice(0, 10) });
   }
 
   const adminId = await getSessionAdminId();

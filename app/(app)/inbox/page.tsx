@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   CheckCheck,
@@ -77,7 +78,26 @@ function Ticks({ status }: { status: string }) {
   return <Check className="h-3.5 w-3.5 text-slate-400" aria-label="Sent" />;
 }
 
+// useSearchParams (used to deep-link straight into a conversation from a
+// dashboard/header "new message" notification, e.g. /inbox?c=<id>) requires
+// a Suspense boundary — this wrapper is that boundary, the real page is
+// InboxPageInner below.
 export default function InboxPage() {
+  return (
+    <Suspense fallback={null}>
+      <InboxPageInner />
+    </Suspense>
+  );
+}
+
+function InboxPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  // The conversation id a notification link asked us to jump straight to —
+  // cleared once we've actually opened it (or the moment the person picks
+  // a different conversation themselves) so it never fights normal use.
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(() => searchParams.get("c"));
+
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -327,6 +347,23 @@ export default function InboxPage() {
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)));
     fetch(`/api/inbox/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }
+
+  // Deep-link support: a "new message" notification (dashboard card, header
+  // bell) links to /inbox?c=<id> — once that conversation has actually
+  // loaded into the list, jump straight into it and drop the query param so
+  // refreshing or switching chats afterward behaves normally.
+  useEffect(() => {
+    if (!pendingOpenId) return;
+    const match = conversations.find((c) => c.id === pendingOpenId);
+    if (!match) return;
+    // False positive — see the identical note on this pattern in
+    // app/(app)/clients/page.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    openConversation(match.id);
+    setPendingOpenId(null);
+    router.replace("/inbox", { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOpenId, conversations]);
 
   // Fires the real Meta "typing…" indicator on the customer's own WhatsApp —
   // used both right on a keystroke and by the renewal timer below. Silent by

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   CheckCheck,
   Eye,
+  MessageCircle,
   MessageSquare,
   Send,
   Users,
@@ -24,12 +25,21 @@ import { useSubscription } from "@/lib/subscription";
 import { describeDays, formatCurrency, formatDate, formatDateTime, formatNumber, percent } from "@/lib/utils";
 import type { Campaign, MessageRecord } from "@/types";
 
+interface UnreadConversation {
+  id: string;
+  contactName: string | null;
+  contactPhone: string;
+  unreadCount: number;
+  lastMessageAt: string;
+}
+
 interface DashboardData {
   totalContacts: number;
   activeCampaigns: number;
   totals: { recipients: number; sent: number; delivered: number; read: number; failed: number };
   recentCampaigns: Campaign[];
   recentMessages: MessageRecord[];
+  unreadMessages: { total: number; conversations: UnreadConversation[] };
 }
 
 export default function ClientAdminDashboard() {
@@ -41,11 +51,32 @@ export default function ClientAdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/dashboard/client")
-      .then((res) => res.json())
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    function load(showSpinner: boolean) {
+      if (showSpinner) setLoading(true);
+      fetch("/api/dashboard/client")
+        .then((res) => res.json())
+        .then((d) => {
+          if (!cancelled) setData(d);
+        })
+        .catch(() => {
+          if (!cancelled) setData(null);
+        })
+        .finally(() => {
+          if (!cancelled && showSpinner) setLoading(false);
+        });
+    }
+
+    load(true);
+    // Keeps the "New messages" card and the rest of this dashboard current
+    // without a manual refresh — a new WhatsApp reply shouldn't need a page
+    // reload to show up here.
+    const interval = setInterval(() => load(false), 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const columns: Column<Campaign>[] = [
@@ -101,6 +132,34 @@ export default function ClientAdminDashboard() {
         <LoadingState rows={3} label="Loading dashboard" />
       ) : (
         <>
+          {(data?.unreadMessages.total ?? 0) > 0 && (
+            <Link
+              href={
+                data!.unreadMessages.conversations.length === 1
+                  ? `/inbox?c=${data!.unreadMessages.conversations[0].id}`
+                  : "/inbox"
+              }
+              className="mb-5 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 transition-colors hover:bg-red-100"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-white">
+                <MessageCircle className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-red-800">
+                  {data!.unreadMessages.total} new message{data!.unreadMessages.total === 1 ? "" : "s"} waiting
+                </p>
+                <p className="truncate text-xs text-red-600">
+                  {data!.unreadMessages.conversations
+                    .slice(0, 3)
+                    .map((c) => c.contactName || c.contactPhone)
+                    .join(", ")}
+                  {data!.unreadMessages.conversations.length > 3 ? "…" : ""}
+                </p>
+              </div>
+              <span className="shrink-0 text-xs font-medium text-red-700">Open Inbox →</span>
+            </Link>
+          )}
+
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
             <StatCard label="Total contacts" value={formatNumber(data?.totalContacts ?? 0)} icon={Users} />
             <StatCard label="Active campaigns" value={data?.activeCampaigns ?? 0} icon={MessageSquare} />
