@@ -472,7 +472,7 @@ export default function InboxPage() {
                     <div
                       key={message.id}
                       id={`msg-${message.id}`}
-                      className={`w-fit max-w-[75%] min-w-[3.5rem] break-words rounded-2xl px-3.5 py-2 text-sm transition-colors ${
+                      className={`w-fit max-w-[75%] min-w-[3.5rem] overflow-hidden break-words rounded-2xl text-sm transition-colors ${
                         message.direction === "outbound"
                           ? "ml-auto rounded-tr-sm bg-emerald-100 text-slate-800"
                           : "rounded-tl-sm bg-white text-slate-800 ring-1 ring-slate-200"
@@ -482,67 +482,72 @@ export default function InboxPage() {
                           : ""
                       }`}
                     >
-                      {message.direction === "outbound" && (message.campaignName || message.templateName) && (
-                        <p className="mb-1 truncate text-[11px] font-medium text-emerald-700">
-                          Sent via {message.campaignName ?? "campaign"}
-                          {/* A bulk send's campaign name already embeds the
-                              template name ("Bulk send — <template>"), so
-                              only append it separately when it isn't
-                              already part of the campaign name. */}
-                          {message.templateName && !(message.campaignName ?? "").includes(message.templateName)
-                            ? ` · ${message.templateName}`
-                            : ""}
-                        </p>
-                      )}
+                      {/* Real WhatsApp shows a photo/video edge-to-edge in the
+                          bubble, with padding only around the caption/text
+                          below it — not padded like a regular text message. */}
                       {message.type === "image" && message.mediaUrl && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={message.mediaUrl}
                           alt={message.mediaFileName ?? "Photo"}
-                          // object-cover + a fixed height cropped every photo to
-                          // fit a box, unlike real WhatsApp which shows the
-                          // whole image at its own aspect ratio. object-contain
-                          // + auto width/height (capped, not forced) fixes that.
-                          className="mb-1.5 h-auto max-h-80 w-auto max-w-full rounded-lg object-contain"
+                          // object-contain + auto height (capped, not forced)
+                          // shows the whole image at its own aspect ratio
+                          // instead of cropping it into a fixed box.
+                          className="block h-auto max-h-80 w-auto max-w-full object-contain"
                         />
-                      )}
-                      {message.type === "image" && !message.mediaUrl && (
-                        <p className="mb-1 text-xs text-slate-400">📷 Photo received (not downloaded)</p>
                       )}
                       {message.type === "video" && message.mediaUrl && (
                         <video
                           key={message.mediaUrl}
                           src={message.mediaUrl}
                           controls
-                          className="mb-1.5 h-auto max-h-80 w-auto max-w-full rounded-lg bg-black object-contain"
+                          className="block h-auto max-h-80 w-auto max-w-full bg-black object-contain"
                         />
                       )}
-                      {message.type === "video" && !message.mediaUrl && (
-                        <p className="mb-1 text-xs text-slate-400">🎥 Video (not downloaded)</p>
-                      )}
-                      {message.type === "document" && message.mediaUrl && (
-                        <a
-                          href={message.mediaUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mb-1.5 flex items-center gap-2 rounded-lg bg-white/70 px-2.5 py-2 ring-1 ring-slate-200 hover:bg-white"
-                        >
-                          <FileText className="h-6 w-6 shrink-0 text-indigo-500" />
-                          <span className="truncate text-xs font-medium text-slate-700">
-                            {message.mediaFileName ?? "Document"}
-                          </span>
-                        </a>
-                      )}
-                      {message.type === "document" && !message.mediaUrl && (
-                        <p className="mb-1 text-xs text-slate-400">
-                          📄 {message.mediaFileName ?? "Document"} received (not downloaded)
+
+                      <div className="px-3.5 py-2">
+                        {message.direction === "outbound" && (message.campaignName || message.templateName) && (
+                          <p className="mb-1 truncate text-[11px] font-medium text-emerald-700">
+                            Sent via {message.campaignName ?? "campaign"}
+                            {/* A bulk send's campaign name already embeds the
+                                template name ("Bulk send — <template>"), so
+                                only append it separately when it isn't
+                                already part of the campaign name. */}
+                            {message.templateName && !(message.campaignName ?? "").includes(message.templateName)
+                              ? ` · ${message.templateName}`
+                              : ""}
+                          </p>
+                        )}
+                        {message.type === "image" && !message.mediaUrl && (
+                          <p className="mb-1 text-xs text-slate-400">📷 Photo received (not downloaded)</p>
+                        )}
+                        {message.type === "video" && !message.mediaUrl && (
+                          <p className="mb-1 text-xs text-slate-400">🎥 Video (not downloaded)</p>
+                        )}
+                        {message.type === "document" && message.mediaUrl && (
+                          <a
+                            href={message.mediaUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mb-1.5 flex items-center gap-2 rounded-lg bg-white/70 px-2.5 py-2 ring-1 ring-slate-200 hover:bg-white"
+                          >
+                            <FileText className="h-6 w-6 shrink-0 text-indigo-500" />
+                            <span className="truncate text-xs font-medium text-slate-700">
+                              {message.mediaFileName ?? "Document"}
+                            </span>
+                          </a>
+                        )}
+                        {message.type === "document" && !message.mediaUrl && (
+                          <p className="mb-1 text-xs text-slate-400">
+                            📄 {message.mediaFileName ?? "Document"} received (not downloaded)
+                          </p>
+                        )}
+                        {message.text && <p className="leading-relaxed">{message.text}</p>}
+                        <p className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
+                          {formatDateTime(message.createdAt)}
+                          {message.direction === "outbound" && <Ticks status={message.status} />}
                         </p>
-                      )}
-                      {message.text && <p className="leading-relaxed">{message.text}</p>}
-                      <p className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
-                        {formatDateTime(message.createdAt)}
-                        {message.direction === "outbound" && <Ticks status={message.status} />}
-                      </p>
+                      </div>
                     </div>
                   ))}
                   <div ref={messagesEndRef} />
