@@ -23,7 +23,7 @@ import SubscriptionBadge from "@/components/subscription/SubscriptionBadge";
 import { useAuth } from "@/lib/auth";
 import { useSubscription } from "@/lib/subscription";
 import { describeDays, formatCurrency, formatDate, formatDateTime, formatNumber, percent } from "@/lib/utils";
-import type { Campaign, MessageRecord } from "@/types";
+import type { Campaign } from "@/types";
 
 interface UnreadConversation {
   id: string;
@@ -33,12 +33,20 @@ interface UnreadConversation {
   lastMessageAt: string;
 }
 
+interface RecentChat {
+  id: string;
+  contactName: string | null;
+  contactPhone: string;
+  messageCount: number;
+  lastMessageAt: string;
+}
+
 interface DashboardData {
   totalContacts: number;
   activeCampaigns: number;
   totals: { recipients: number; sent: number; delivered: number; read: number; failed: number };
   recentCampaigns: Campaign[];
-  recentMessages: MessageRecord[];
+  recentChats: RecentChat[];
   unreadMessages: { total: number; conversations: UnreadConversation[] };
 }
 
@@ -253,34 +261,47 @@ export default function ClientAdminDashboard() {
 
           <Card className="mt-6">
             <CardHeader
-              title="Recent messages"
+              title="Recent chats"
               action={
-                <Link href="/message-status" className="text-xs font-medium text-indigo-600 hover:underline">
+                <Link href="/inbox" className="text-xs font-medium text-indigo-600 hover:underline">
                   View all
                 </Link>
               }
             />
+            {/* One row per real contact (never a duplicate — Conversation is
+                already unique per person), showing their TOTAL message
+                count, not a per-message list. Clicking a row jumps straight
+                into that conversation in the Inbox. */}
             <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
-              {(data?.recentMessages ?? []).length === 0 && (
+              {(data?.recentChats ?? []).length === 0 && (
                 <li className="px-5 py-6 text-sm text-slate-400">
-                  No messages sent yet — try Bulk Sender or a Campaign.
+                  No conversations yet — replies will show up here as they come in.
                 </li>
               )}
-              {data?.recentMessages.map((message) => (
-                <li key={message.id} className="flex items-center gap-3 px-5 py-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
-                    {(message.recipientName || message.recipientPhone)[0]}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">
-                      {message.recipientName || message.recipientPhone}
-                    </p>
-                    <p className="truncate text-xs text-slate-400">{message.preview}</p>
-                  </div>
-                  <span className="shrink-0 text-xs text-slate-400">
-                    {message.sentAt ? formatDateTime(message.sentAt) : formatDateTime(message.createdAt)}
-                  </span>
-                  <StatusBadge status={message.status} />
+              {data?.recentChats.map((chat) => (
+                <li key={chat.id}>
+                  <Link
+                    href={`/inbox?c=${chat.id}`}
+                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-50"
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+                      {(chat.contactName || chat.contactPhone)[0]}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-800">
+                        {chat.contactName || chat.contactPhone}
+                      </p>
+                      <p className="truncate text-xs text-slate-400">
+                        {chat.contactName ? chat.contactPhone : ""}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {formatDateTime(chat.lastMessageAt)}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                      {chat.messageCount} message{chat.messageCount === 1 ? "" : "s"}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>

@@ -3,13 +3,12 @@ import { prisma } from "@/lib/db";
 import { requireClient } from "@/lib/apiGuards";
 import { aggregateTotals } from "@/lib/reportsAggregate";
 import { toPublicCampaign } from "@/lib/campaignMapper";
-import { toPublicMessageRecord } from "@/lib/messageMapper";
 
 export async function GET() {
   const auth = await requireClient();
   if (auth instanceof NextResponse) return auth;
 
-  const [totalContacts, activeCampaigns, recentCampaigns, allRecords, recentMessages, unreadConversations] =
+  const [totalContacts, activeCampaigns, recentCampaigns, allRecords, recentChats, unreadConversations] =
     await Promise.all([
       prisma.contact.count({ where: { clientId: auth.clientId } }),
       prisma.campaign.count({
@@ -24,13 +23,23 @@ export async function GET() {
         where: { clientId: auth.clientId },
         select: { status: true, createdAt: true, campaignId: true, campaignName: true },
       }),
-      prisma.messageRecord.findMany({
+      // "Recent chats" for the dashboard card — one row per real WhatsApp
+      // contact (Conversation is already unique per contact, so this can
+      // never show the same person twice the way a flat per-message list
+      // could), each showing their TOTAL message count, not just how many
+      // recent ones happened to be in a fixed-size slice. Clicking a row
+      // goes straight into that conversation in the Inbox.
+      prisma.conversation.findMany({
         where: { clientId: auth.clientId },
-        orderBy: { createdAt: "desc" },
-        // The dashboard card now scrolls (fixed height) instead of only ever
-        // showing the last handful, so there's actually something to scroll
-        // through.
+        orderBy: { lastMessageAt: "desc" },
         take: 20,
+        select: {
+          id: true,
+          contactName: true,
+          contactPhone: true,
+          lastMessageAt: true,
+          _count: { select: { messages: true } },
+        },
       }),
       // Real unread WhatsApp replies for the "New messages" urgent card. A
       // conversation currently open in the Inbox is kept at unreadCount 0 in
@@ -49,7 +58,21 @@ export async function GET() {
     activeCampaigns,
     totals: aggregateTotals(allRecords),
     recentCampaigns: recentCampaigns.map(toPublicCampaign),
-    recentMessages: recentMessages.map(toPublicMessageRecord),
+    recentChats: recentChats.map(
+      (c: {
+        id: string;
+        contactName: string | null;
+        contactPhone: string;
+        lastMessageAt: Date;
+        _count: { messages: number };
+      }) => ({
+        id: c.id,
+        contactName: c.contactName,
+        contactPhone: c.contactPhone,
+        messageCount: c._count.messages,
+        lastMessageAt: c.lastMessageAt.toISOString(),
+      })
+    ),
     unreadMessages: {
       total: unreadConversations.reduce(
         (sum: number, c: { unreadCount: number }) => sum + c.unreadCount,
