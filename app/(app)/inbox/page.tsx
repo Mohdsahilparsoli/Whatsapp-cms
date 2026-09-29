@@ -873,9 +873,7 @@ function InboxPageInner() {
                           )}
                           {message.type === "document" && message.mediaUrl && (
                             <a
-                              href={message.mediaUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              href={`/api/inbox/media/${message.id}/download`}
                               className="mb-1.5 flex items-center gap-2 rounded-lg bg-white/70 px-2.5 py-2 ring-1 ring-slate-200 hover:bg-white"
                             >
                               <FileText className="h-6 w-6 shrink-0 text-indigo-500" />
@@ -1073,10 +1071,7 @@ function InboxPageInner() {
         <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={() => setLightbox(null)}>
           <div className="flex shrink-0 items-center justify-end gap-2 p-3" onClick={(e) => e.stopPropagation()}>
             <a
-              href={lightbox.url}
-              download={lightbox.fileName ?? undefined}
-              target="_blank"
-              rel="noopener noreferrer"
+              href={`/api/inbox/media/${lightbox.messageId}/download`}
               aria-label="Save"
               className="rounded-full bg-white/10 p-2.5 text-white hover:bg-white/20"
             >
