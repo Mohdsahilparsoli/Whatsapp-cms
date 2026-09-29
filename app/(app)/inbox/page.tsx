@@ -96,11 +96,6 @@ export default function InboxPage() {
   // on every keystroke; this just remembers when it was last sent.
   const lastTypingSentAtRef = useRef(0);
   const typingRenewIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Surfaces what actually happened on the last attempt — until this was
-  // added, a failed typing indicator (no credentials, no recent inbound
-  // message, Meta rejecting it) failed completely silently, which is why it
-  // could look like "nothing happens on my side" even when it was working.
-  const [typingStatus, setTypingStatus] = useState<{ ok: boolean; reason?: string } | null>(null);
 
   // In-chat search — real WhatsApp doesn't hide non-matching messages, it
   // highlights matches and lets you step through them, so that's what this
@@ -302,7 +297,6 @@ export default function InboxPage() {
     setLightbox(null);
     exitSelectMode();
     lastTypingSentAtRef.current = 0;
-    setTypingStatus(null);
     if (typingRenewIntervalRef.current) {
       clearInterval(typingRenewIntervalRef.current);
       typingRenewIntervalRef.current = null;
@@ -311,16 +305,16 @@ export default function InboxPage() {
     fetch(`/api/inbox/conversations/${id}/read`, { method: "POST" }).catch(() => {});
   }
 
-  // Fires the real Meta "typing…" indicator and remembers what happened —
-  // used both right on a keystroke and by the renewal timer below.
+  // Fires the real Meta "typing…" indicator on the customer's own WhatsApp —
+  // used both right on a keystroke and by the renewal timer below. Silent by
+  // design: this is a one-way courtesy signal to the customer, not something
+  // that needs to be reported back in this Inbox.
   const sendTypingIndicator = useCallback(async (conversationId: string) => {
     lastTypingSentAtRef.current = Date.now();
     try {
-      const res = await fetch(`/api/inbox/conversations/${conversationId}/typing`, { method: "POST" });
-      const data = await res.json().catch(() => null);
-      setTypingStatus(data?.ok ? { ok: true } : { ok: false, reason: data?.reason ?? "Meta didn't accept it." });
+      await fetch(`/api/inbox/conversations/${conversationId}/typing`, { method: "POST" });
     } catch {
-      setTypingStatus({ ok: false, reason: "Could not reach the WhatsApp API." });
+      // best-effort — a missed typing indicator isn't worth surfacing
     }
   }, []);
 
@@ -397,7 +391,6 @@ export default function InboxPage() {
       setDraft("");
       setReplyTo(null);
       lastTypingSentAtRef.current = 0;
-      setTypingStatus(null);
       if (typingRenewIntervalRef.current) {
         clearInterval(typingRenewIntervalRef.current);
         typingRenewIntervalRef.current = null;
@@ -872,19 +865,6 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                {draft.trim().length > 0 && typingStatus && (
-                  <div
-                    className={`shrink-0 border-t px-4 py-1.5 text-[11px] ${
-                      typingStatus.ok
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-amber-200 bg-amber-50 text-amber-700"
-                    }`}
-                  >
-                    {typingStatus.ok
-                      ? `"Typing…" shown on ${active.contactName || active.contactPhone}'s WhatsApp`
-                      : `Typing indicator not shown: ${typingStatus.reason}`}
-                  </div>
-                )}
 
                 {replyTo && (
                   <div className="flex shrink-0 items-center gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2">
