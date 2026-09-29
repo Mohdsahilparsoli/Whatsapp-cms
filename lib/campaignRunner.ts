@@ -77,6 +77,9 @@ export async function runCampaign(campaignId: string): Promise<void> {
     templateName: template.name,
     buildPayload: (contact) => buildPayloadForContact(template as unknown as TemplateLike, [], contact, origin),
     preview,
+    mediaKind: template.mediaKind,
+    mediaUrl: template.mediaUrl,
+    mediaFileName: template.mediaFileName,
   });
 
   if (result.paused) {

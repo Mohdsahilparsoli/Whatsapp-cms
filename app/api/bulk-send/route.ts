@@ -92,6 +92,9 @@ export async function POST(request: Request) {
     templateName: template.name,
     buildPayload: (contact) => buildPayloadForContact(template as unknown as TemplateLike, variables, contact, origin),
     preview,
+    mediaKind: template.mediaKind,
+    mediaUrl: template.mediaUrl,
+    mediaFileName: template.mediaFileName,
   });
 
   if (result.paused) {

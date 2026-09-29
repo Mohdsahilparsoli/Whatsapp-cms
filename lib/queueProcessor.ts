@@ -69,6 +69,13 @@ interface SendContext {
   templateId?: string | null;
   templateName?: string | null;
   preview: string;
+  /** The template's own media (if any) — so a campaign/bulk send's Inbox
+   * entry shows the actual photo/video/document that went out, not just a
+   * text caption, same as an inbound reply with media would. Omitted or
+   * "none" records as a plain text ChatMessage, same as before. */
+  mediaKind?: "image" | "video" | "document" | "none" | null;
+  mediaUrl?: string | null;
+  mediaFileName?: string | null;
 }
 
 async function sleep(ms: number) {
@@ -162,13 +169,16 @@ async function recordMessage(
         update: { contactName: contact.name ?? undefined, lastMessageAt: new Date() },
         create: { clientId: ctx.clientId, contactPhone: phone, contactName: contact.name ?? null },
       });
+      const hasMedia = ctx.mediaKind && ctx.mediaKind !== "none" && Boolean(ctx.mediaUrl);
       await prisma.chatMessage.create({
         data: {
           conversationId: conversation.id,
           clientId: ctx.clientId,
           direction: "outbound",
-          type: "text",
+          type: hasMedia ? (ctx.mediaKind as "image" | "video" | "document") : "text",
           text: ctx.preview,
+          mediaUrl: hasMedia ? ctx.mediaUrl : null,
+          mediaFileName: hasMedia ? ctx.mediaFileName ?? null : null,
           whatsappMessageId: result.whatsappMessageId,
           status: "sent",
           campaignId: ctx.campaignId ?? null,
@@ -252,6 +262,11 @@ export async function enqueueAndProcess(params: {
    * own name instead of one shared value for the whole send. */
   buildPayload: (contact: BatchContact) => Record<string, unknown>;
   preview: string;
+  /** The template's own media, so it shows up on the Inbox entry for every
+   * contact this send reaches — see the identical note on SendContext. */
+  mediaKind?: "image" | "video" | "document" | "none" | null;
+  mediaUrl?: string | null;
+  mediaFileName?: string | null;
 }): Promise<{ sent: number; failed: number; paused: boolean }> {
   const settings = await getQueueSettings(params.clientId);
   if (settings.paused) {
@@ -294,6 +309,9 @@ export async function enqueueAndProcess(params: {
       templateId: params.templateId,
       templateName: params.templateName,
       preview: params.preview,
+      mediaKind: params.mediaKind,
+      mediaUrl: params.mediaUrl,
+      mediaFileName: params.mediaFileName,
     });
     totalSent += result.sent;
     totalFailed += result.failed;
@@ -367,6 +385,9 @@ export async function retryQueueJob(jobId: string, clientId: string, origin: str
       campaignName: job.name,
       templateId: job.templateId,
       preview,
+      mediaKind: template?.mediaKind,
+      mediaUrl: template?.mediaUrl,
+      mediaFileName: template?.mediaFileName,
     }
   );
 

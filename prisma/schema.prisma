@@ -503,6 +503,7 @@ enum ChatMessageType {
   text
   image
   document
+  video
 }
 
 /// One real message in a Conversation — inbound (from the customer, via

@@ -138,7 +138,10 @@ export function buildOutboundMessage(template: TemplateLike, origin: string): Bu
     const caption = [template.header, template.body, template.footer].filter(Boolean).join("\n\n");
     return {
       payload: { type: mediaType, [mediaType]: { link: absoluteMediaUrl, caption } },
-      preview: `${mediaType === "image" ? "📷" : "📄"} ${template.body}`.slice(0, 200),
+      preview: `${mediaType === "image" ? "📷" : mediaType === "video" ? "🎥" : "📄"} ${template.body}`.slice(
+        0,
+        200
+      ),
     };
   }
 

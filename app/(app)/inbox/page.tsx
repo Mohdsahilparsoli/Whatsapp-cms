@@ -39,7 +39,7 @@ interface ConversationSummary {
 interface RealMessage {
   id: string;
   direction: "inbound" | "outbound";
-  type: "text" | "image" | "document";
+  type: "text" | "image" | "document" | "video";
   text: string;
   mediaUrl: string | null;
   mediaFileName: string | null;
@@ -485,7 +485,13 @@ export default function InboxPage() {
                       {message.direction === "outbound" && (message.campaignName || message.templateName) && (
                         <p className="mb-1 truncate text-[11px] font-medium text-emerald-700">
                           Sent via {message.campaignName ?? "campaign"}
-                          {message.templateName ? ` · ${message.templateName}` : ""}
+                          {/* A bulk send's campaign name already embeds the
+                              template name ("Bulk send — <template>"), so
+                              only append it separately when it isn't
+                              already part of the campaign name. */}
+                          {message.templateName && !(message.campaignName ?? "").includes(message.templateName)
+                            ? ` · ${message.templateName}`
+                            : ""}
                         </p>
                       )}
                       {message.type === "image" && message.mediaUrl && (
@@ -502,6 +508,17 @@ export default function InboxPage() {
                       )}
                       {message.type === "image" && !message.mediaUrl && (
                         <p className="mb-1 text-xs text-slate-400">📷 Photo received (not downloaded)</p>
+                      )}
+                      {message.type === "video" && message.mediaUrl && (
+                        <video
+                          key={message.mediaUrl}
+                          src={message.mediaUrl}
+                          controls
+                          className="mb-1.5 h-auto max-h-80 w-auto max-w-full rounded-lg bg-black object-contain"
+                        />
+                      )}
+                      {message.type === "video" && !message.mediaUrl && (
+                        <p className="mb-1 text-xs text-slate-400">🎥 Video (not downloaded)</p>
                       )}
                       {message.type === "document" && message.mediaUrl && (
                         <a
