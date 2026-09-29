@@ -37,10 +37,11 @@ interface IncomingMessage {
   id: string;
   from: string; // sender's phone number, no "+"
   timestamp?: string;
-  type: "text" | "image" | "document" | "button" | "interactive" | string;
+  type: "text" | "image" | "document" | "video" | "button" | "interactive" | string;
   text?: { body: string };
   image?: { id: string; caption?: string };
   document?: { id: string; caption?: string; filename?: string };
+  video?: { id: string; caption?: string };
   /** Legacy quick-reply tap on a Meta Message Template's QUICK_REPLY button. */
   button?: { text: string; payload?: string };
   /** Current-format reply to a QUICK_REPLY (or list/interactive) button. */
@@ -49,6 +50,11 @@ interface IncomingMessage {
     button_reply?: { id: string; title: string };
     list_reply?: { id: string; title: string };
   };
+  /** Present when the customer swiped-to-reply/quoted one of our earlier
+   * messages — `id` is that earlier message's own WhatsApp message id
+   * (matches ChatMessage.whatsappMessageId), which lets the Inbox show the
+   * same quoted-reply preview WhatsApp itself shows them. */
+  context?: { id?: string };
 }
 
 interface ChangeValue {
@@ -144,6 +150,8 @@ const MIME_EXTENSIONS: Record<string, string> = {
   "application/vnd.ms-excel": ".xls",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
   "text/plain": ".txt",
+  "video/mp4": ".mp4",
+  "video/3gpp": ".3gp",
 };
 
 /**
@@ -167,7 +175,7 @@ async function downloadAndStoreIncomingMedia(
   clientId: string,
   mediaId: string,
   fileNameHint: string | undefined,
-  kind: "image" | "document"
+  kind: "image" | "document" | "video"
 ): Promise<{ url: string; fileName: string } | null> {
   try {
     const credentials = await getWhatsAppCredentials(clientId);
@@ -203,7 +211,7 @@ async function downloadAndStoreIncomingMedia(
     const buffer = Buffer.from(await fileRes.arrayBuffer());
 
     const mimeType = meta.mime_type?.split(";")[0]?.trim() ?? "application/octet-stream";
-    const extension = MIME_EXTENSIONS[mimeType] ?? (kind === "image" ? ".jpg" : "");
+    const extension = MIME_EXTENSIONS[mimeType] ?? (kind === "image" ? ".jpg" : kind === "video" ? ".mp4" : "");
     const fileName =
       fileNameHint && fileNameHint.trim().length > 0 ? fileNameHint : `${kind}-${randomUUID()}${extension}`;
     const storageKey = `${randomUUID()}${extension}`;
@@ -233,7 +241,7 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
   const when = message.timestamp ? new Date(Number(message.timestamp) * 1000) : new Date();
 
   let text = "";
-  let type: "text" | "image" | "document" = "text";
+  let type: "text" | "image" | "document" | "video" = "text";
   let mediaUrl: string | null = null;
   let mediaFileName: string | null = null;
 
@@ -271,12 +279,30 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
         mediaFileName = downloaded.fileName;
       }
     }
+  } else if (message.type === "video") {
+    type = "video";
+    text = message.video?.caption ?? "";
+    if (message.video?.id) {
+      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.video.id, undefined, "video");
+      if (downloaded) {
+        mediaUrl = downloaded.url;
+        mediaFileName = downloaded.fileName;
+      }
+    }
   } else {
     text = `[Unsupported message type: ${message.type}]`;
   }
   // If the download failed for any reason (token issue, network, media
   // expired), mediaUrl stays null and the Inbox falls back to its existing
   // "received (not downloaded)" placeholder — same behavior as before.
+
+  // The customer swiped-to-reply/quoted one of our earlier messages —
+  // Meta's context.id is that message's own whatsappMessageId, so it's
+  // looked up here to snapshot a quoted preview, same as an outbound reply
+  // does in app/api/whatsapp/send-test/route.ts.
+  const repliedTo = message.context?.id
+    ? await prisma.chatMessage.findFirst({ where: { whatsappMessageId: message.context.id, clientId } })
+    : null;
 
   const conversation = await prisma.conversation.upsert({
     where: { clientId_contactPhone: { clientId, contactPhone: phone } },
@@ -306,6 +332,10 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
       whatsappMessageId: message.id,
       status: "sent",
       createdAt: when,
+      replyToId: repliedTo?.id ?? null,
+      replyToText: repliedTo?.text ?? null,
+      replyToType: repliedTo?.type ?? null,
+      replyToDirection: repliedTo?.direction ?? null,
     },
   });
 }

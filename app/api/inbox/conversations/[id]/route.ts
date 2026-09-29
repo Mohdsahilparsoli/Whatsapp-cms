@@ -33,6 +33,10 @@ export async function GET(_request: Request, { params }: Params) {
         status: string;
         campaignName: string | null;
         templateName: string | null;
+        replyToId: string | null;
+        replyToText: string | null;
+        replyToType: string | null;
+        replyToDirection: string | null;
         createdAt: Date;
       }) => ({
         id: m.id,
@@ -45,6 +49,10 @@ export async function GET(_request: Request, { params }: Params) {
         status: m.status,
         campaignName: m.campaignName,
         templateName: m.templateName,
+        replyToId: m.replyToId,
+        replyToText: m.replyToText,
+        replyToType: m.replyToType,
+        replyToDirection: m.replyToDirection,
         createdAt: m.createdAt.toISOString(),
       })
     ),

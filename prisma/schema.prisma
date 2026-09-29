@@ -535,6 +535,19 @@ model ChatMessage {
   templateId   String?
   templateName String?
 
+  /// Swipe-to-reply / quote-reply, same as real WhatsApp — a snapshot (not
+  /// a live relation) of the message this one is replying to, so the quote
+  /// still shows correctly even if the original is later deleted.
+  /// replyToId still points at the original ChatMessage.id when it exists,
+  /// so the UI can scroll to it, but nothing here cascades if that row is
+  /// gone. For an outbound reply this is also sent to Meta as the real
+  /// WhatsApp `context.message_id`, so the customer's own phone shows a
+  /// real quoted reply too, not just something this Inbox draws locally.
+  replyToId        String?
+  replyToText      String?
+  replyToType      String?
+  replyToDirection String?
+
   createdAt DateTime @default(now())
 
   @@index([conversationId])

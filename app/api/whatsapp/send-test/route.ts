@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   }
   const { phoneNumberId, accessToken } = credentials;
 
-  let body: { to?: string; message?: string; name?: string };
+  let body: { to?: string; message?: string; name?: string; replyToId?: string };
   try {
     body = await request.json();
   } catch {
@@ -55,6 +55,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a message." }, { status: 400 });
   }
 
+  // Swipe-to-reply — if this reply was made against a specific earlier
+  // message (see the Inbox's reply picker), scoped to this same client so
+  // one client can never quote-snapshot another's message. Only messages
+  // sent/received through the real WhatsApp API have a whatsappMessageId,
+  // so `context` is only sent to Meta when one exists — otherwise this
+  // still records a local-only quote (replyTo* below) without it.
+  const replyToId = body.replyToId?.trim() || null;
+  const originalMessage = replyToId
+    ? await prisma.chatMessage.findFirst({ where: { id: replyToId, clientId: auth.clientId } })
+    : null;
+
   try {
     const res = await fetch(`https://graph.facebook.com/v25.0/${phoneNumberId}/messages`, {
       method: "POST",
@@ -67,6 +78,12 @@ export async function POST(request: Request) {
         to,
         type: "text",
         text: { body: message },
+        // Meta's real quoted-reply mechanism — this makes the customer's
+        // own phone show an actual quoted reply, not just something drawn
+        // locally in this Inbox.
+        ...(originalMessage?.whatsappMessageId
+          ? { context: { message_id: originalMessage.whatsappMessageId } }
+          : {}),
       }),
     });
 
@@ -127,6 +144,10 @@ export async function POST(request: Request) {
         text: message,
         whatsappMessageId,
         status: "sent",
+        replyToId: originalMessage?.id ?? null,
+        replyToText: originalMessage?.text ?? null,
+        replyToType: originalMessage?.type ?? null,
+        replyToDirection: originalMessage?.direction ?? null,
       },
     });
 
