@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { normalizePhone } from "@/lib/phone";
 
 /**
  * Sends via the signed-in client's own connected WhatsApp account if they
@@ -39,12 +40,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const to = body.to?.replace(/[^\d]/g, "");
+  const rawDigits = body.to?.replace(/[^\d]/g, "");
   const message = body.message?.trim();
 
-  if (!to || to.length < 10) {
+  if (!rawDigits || rawDigits.length < 10) {
     return NextResponse.json({ error: "Enter a valid recipient phone number (with country code)." }, { status: 400 });
   }
+  // Same canonical form (country code always included) used everywhere
+  // else a Conversation gets written, so this reply lands in the same
+  // Inbox thread as a campaign send or the customer's own messages to the
+  // same number instead of splitting into a second chat — see lib/phone.ts.
+  const to = normalizePhone(rawDigits);
   if (!message) {
     return NextResponse.json({ error: "Enter a message." }, { status: 400 });
   }

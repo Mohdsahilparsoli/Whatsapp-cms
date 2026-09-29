@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { normalizePhone } from "@/lib/phone";
 
 /**
  * Sends via the signed-in client's own connected WhatsApp account if they
@@ -44,13 +45,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const to = body.to?.replace(/\D/g, "");
+  const rawDigits = body.to?.replace(/\D/g, "");
   const mediaUrl = body.mediaUrl?.trim();
   const mediaKind = body.mediaKind;
 
-  if (!to || to.length < 10) {
+  if (!rawDigits || rawDigits.length < 10) {
     return NextResponse.json({ error: "Enter a valid recipient phone number (with country code)." }, { status: 400 });
   }
+  // Same canonical form as everywhere else a Conversation is written — see
+  // lib/phone.ts and the identical note in send-test/route.ts.
+  const to = normalizePhone(rawDigits);
   if (!mediaUrl || (mediaKind !== "image" && mediaKind !== "document")) {
     return NextResponse.json({ error: "Upload a file first." }, { status: 400 });
   }

@@ -1,5 +1,6 @@
 import "server-only";
 import type { TemplateButtonKind } from "@/types";
+import { normalizePhone } from "@/lib/phone";
 
 interface TemplateButtonLike {
   kind: TemplateButtonKind;
@@ -73,10 +74,8 @@ function clip(text: string, max: number): string {
  * digits) is used as-is.
  */
 export function toWaMeUrl(raw: string, defaultCallingCode?: string | null): string {
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return "";
-  const withCode = digits.length > 10 ? digits : `${defaultCallingCode || "91"}${digits}`;
-  return `https://wa.me/${withCode}`;
+  const withCode = normalizePhone(raw, defaultCallingCode || "91");
+  return withCode ? `https://wa.me/${withCode}` : "";
 }
 
 /**

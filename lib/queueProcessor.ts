@@ -6,6 +6,7 @@ import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
 import { buildTemplateSendPayload } from "@/lib/metaTemplates";
 import { personalizeVariables } from "@/lib/personalize";
 import { fillTemplate } from "@/lib/utils";
+import { normalizePhone } from "@/lib/phone";
 
 interface BatchContact {
   id: string;
@@ -86,7 +87,9 @@ async function sendOne(
   phoneNumberId: string,
   accessToken: string
 ): Promise<{ ok: true; whatsappMessageId: string | null } | { ok: false; error: string }> {
-  const to = phone.replace(/\D/g, "");
+  // Always send with a country code, even if the Contact was saved without
+  // one (e.g. typed as "9818186876") — see lib/phone.ts.
+  const to = normalizePhone(phone);
   try {
     const res = await fetch(`https://graph.facebook.com/v25.0/${phoneNumberId}/messages`, {
       method: "POST",
@@ -153,7 +156,7 @@ async function recordMessage(
   // MessageRecord write above, which is what Message Status/Queue read.
   if (result.ok) {
     try {
-      const phone = contact.phone.replace(/\D/g, "");
+      const phone = normalizePhone(contact.phone);
       const conversation = await prisma.conversation.upsert({
         where: { clientId_contactPhone: { clientId: ctx.clientId, contactPhone: phone } },
         update: { contactName: contact.name ?? undefined, lastMessageAt: new Date() },

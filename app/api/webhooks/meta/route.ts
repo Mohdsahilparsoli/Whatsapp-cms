@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { storeFile } from "@/lib/fileStorage";
 import { normalizeMetaStatus } from "@/lib/metaTemplates";
+import { normalizePhone } from "@/lib/phone";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -225,7 +226,10 @@ async function resolveClientId(phoneNumberId: string): Promise<string | null> {
 }
 
 async function recordIncomingMessage(clientId: string, senderName: string | null, message: IncomingMessage) {
-  const phone = message.from;
+  // Meta already sends this with a country code (no "+"), but normalized
+  // anyway so it's always byte-identical to whatever a campaign send or a
+  // manual reply wrote for this same person — see lib/phone.ts.
+  const phone = normalizePhone(message.from);
   const when = message.timestamp ? new Date(Number(message.timestamp) * 1000) : new Date();
 
   let text = "";
