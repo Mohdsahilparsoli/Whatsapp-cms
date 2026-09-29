@@ -26,6 +26,7 @@ import Button from "@/components/ui/Button";
 import SearchInput from "@/components/ui/SearchInput";
 import StatusBadge from "@/components/ui/StatusBadge";
 import EmptyState from "@/components/ui/EmptyState";
+import LoadingState from "@/components/ui/LoadingState";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { formatDateTime } from "@/lib/utils";
 
@@ -102,6 +103,11 @@ function InboxPageInner() {
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeMessages, setActiveMessages] = useState<RealMessage[]>([]);
+  // True only for the moment a conversation is first opened — set in
+  // openConversation, cleared once its first message fetch lands — so
+  // switching chats shows a real loading state instead of an empty pane
+  // that suddenly pops full of messages.
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [showDetails, setShowDetails] = useState(true);
@@ -194,6 +200,11 @@ function InboxPageInner() {
       setActiveMessages(data.messages ?? []);
     } catch {
       // keep whatever was already shown
+    } finally {
+      // Only matters the first time a conversation is opened — every later
+      // call here is this same effect's background 4s poll, by which point
+      // messagesLoading is already false and this is a no-op.
+      setMessagesLoading(false);
     }
   }, []);
 
@@ -332,6 +343,13 @@ function InboxPageInner() {
   const active = conversations.find((c) => c.id === activeId) ?? null;
 
   async function openConversation(id: string) {
+    // Only show the loading skeleton when actually switching conversations
+    // — reopening the same one (e.g. a stray re-click) shouldn't wipe the
+    // messages already on screen.
+    if (id !== activeId) {
+      setMessagesLoading(true);
+      setActiveMessages([]);
+    }
     setActiveId(id);
     setSendError(null);
     setMenuOpen(false);
@@ -519,6 +537,11 @@ function InboxPageInner() {
               <SearchInput value={query} onChange={setQuery} placeholder="Search conversations" />
             </div>
             <ul className="min-h-0 flex-1 overflow-y-auto">
+              {loading && (
+                <li>
+                  <LoadingState rows={6} label="Loading conversations" />
+                </li>
+              )}
               {!loading && filtered.length === 0 && (
                 <li>
                   <EmptyState
@@ -527,7 +550,7 @@ function InboxPageInner() {
                   />
                 </li>
               )}
-              {filtered.map((thread) => (
+              {!loading && filtered.map((thread) => (
                 <li key={thread.id}>
                   <button
                     type="button"
@@ -717,7 +740,8 @@ function InboxPageInner() {
                   ref={messagesContainerRef}
                   className="relative min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50/60 px-5 py-4"
                 >
-                  {activeMessages.map((message) => (
+                  {messagesLoading && <LoadingState rows={6} label="Loading messages" />}
+                  {!messagesLoading && activeMessages.map((message) => (
                     <div key={message.id} id={`msg-${message.id}`} className="group flex items-start gap-1.5">
                       {selectMode && (
                         <input
