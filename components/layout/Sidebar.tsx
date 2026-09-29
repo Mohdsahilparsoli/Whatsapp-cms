@@ -99,7 +99,10 @@ export default function Sidebar({
   return (
     <aside
       className={cn(
-        "hidden shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col",
+        // Sticky + full viewport height, same idea as the top header (which is
+        // "sticky top-0") — the nav stays pinned in place while the page
+        // content scrolls, instead of scrolling away with it.
+        "sticky top-0 hidden h-screen shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col",
         collapsed ? "lg:w-[76px]" : "lg:w-64"
       )}
     >
