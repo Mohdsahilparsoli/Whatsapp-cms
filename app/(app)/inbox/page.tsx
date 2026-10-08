@@ -14,6 +14,7 @@ import {
   ListChecks,
   Loader2,
   MapPin,
+  ShoppingBag,
   Maximize2,
   MoreVertical,
   Paperclip,
@@ -73,6 +74,21 @@ interface RealMessage {
   createdAt: string;
 }
 
+interface CatalogProductItem {
+  retailerId: string;
+  name: string;
+  price: string | null;
+  imageUrl: string | null;
+  availability: string | null;
+}
+
+interface FlowItem {
+  id: string;
+  name: string;
+  status: string;
+  categories: string[];
+}
+
 /** The page's own fixed vertical chrome above the Card (Topbar + main's own
  * padding + PageHeader) — subtracted from 100vh so the Card fills exactly
  * the rest of the viewport instead of pushing the whole page into scroll.
@@ -128,6 +144,18 @@ function InboxPageInner() {
   const [buttonTitles, setButtonTitles] = useState<string[]>(["", ""]);
   const [listLabel, setListLabel] = useState("Choose an option");
   const [listRows, setListRows] = useState<string[]>(["", ""]);
+  // Catalog products + WhatsApp Flows composer (loaded from Meta on open).
+  const [richOpen, setRichOpen] = useState(false);
+  const [richTab, setRichTab] = useState<"products" | "flows">("products");
+  const [catalog, setCatalog] = useState<{ id: string; name: string | null; products: CatalogProductItem[] } | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [flows, setFlows] = useState<FlowItem[] | null>(null);
+  const [flowsError, setFlowsError] = useState<string | null>(null);
+  const [flowsLoading, setFlowsLoading] = useState(false);
+  const [selectedFlowId, setSelectedFlowId] = useState("");
+  const [flowCta, setFlowCta] = useState("Open");
   // Location composer.
   const [locationOpen, setLocationOpen] = useState(false);
   const [locName, setLocName] = useState("");
@@ -482,6 +510,115 @@ function InboxPageInner() {
     const t = setInterval(() => setNowTick(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
+
+  async function loadRichData(tab: "products" | "flows") {
+    if (tab === "products" && !catalog && !catalogLoading) {
+      setCatalogLoading(true);
+      setCatalogError(null);
+      try {
+        const res = await fetch("/api/whatsapp/catalog");
+        const data = await res.json();
+        if (!res.ok) setCatalogError(data.error ?? "Could not load your catalog.");
+        else setCatalog({ id: data.catalogId, name: data.catalogName, products: data.products });
+      } catch {
+        setCatalogError("Could not reach the server.");
+      } finally {
+        setCatalogLoading(false);
+      }
+    }
+    if (tab === "flows" && !flows && !flowsLoading) {
+      setFlowsLoading(true);
+      setFlowsError(null);
+      try {
+        const res = await fetch("/api/whatsapp/flows");
+        const data = await res.json();
+        if (!res.ok) setFlowsError(data.error ?? "Could not load your Flows.");
+        else setFlows(data.flows);
+      } catch {
+        setFlowsError("Could not reach the server.");
+      } finally {
+        setFlowsLoading(false);
+      }
+    }
+  }
+
+  function toggleRichPanel() {
+    setInteractiveOpen(false);
+    setLocationOpen(false);
+    const next = !richOpen;
+    setRichOpen(next);
+    if (next) loadRichData(richTab);
+  }
+
+  function switchRichTab(tab: "products" | "flows") {
+    setRichTab(tab);
+    loadRichData(tab);
+  }
+
+  async function sendProducts() {
+    const text = draft.trim();
+    if (!text || !active || !catalog || selectedProducts.length === 0) return;
+    setSendError(null);
+    setSending(true);
+    try {
+      const chosen = catalog.products.filter((p) => selectedProducts.includes(p.retailerId));
+      const res = await fetch("/api/whatsapp/send-product", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: active.contactPhone,
+          name: active.contactName,
+          message: text,
+          catalogId: catalog.id,
+          products: chosen.map((p) => ({ retailerId: p.retailerId, name: p.name })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error ?? "Could not send products.");
+        return;
+      }
+      setDraft("");
+      setSelectedProducts([]);
+      setRichOpen(false);
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendFlow() {
+    const text = draft.trim();
+    const flow = flows?.find((f) => f.id === selectedFlowId);
+    if (!text || !active || !flow) return;
+    setSendError(null);
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/send-flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: active.contactPhone,
+          name: active.contactName,
+          message: text,
+          flowId: flow.id,
+          flowName: flow.name,
+          flowStatus: flow.status,
+          flowCta,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error ?? "Could not send the Flow.");
+        return;
+      }
+      setDraft("");
+      setRichOpen(false);
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
+    } finally {
+      setSending(false);
+    }
+  }
 
   function fillCurrentLocation() {
     if (!navigator.geolocation) {
@@ -1172,6 +1309,132 @@ function InboxPageInner() {
                   </div>
                 )}
 
+                {richOpen && !windowClosed && (
+                  <div className="shrink-0 space-y-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                        {(["products", "flows"] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => switchRichTab(t)}
+                            className={`rounded-md px-3 py-1 font-medium ${
+                              richTab === t ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                          >
+                            {t === "products" ? "Catalog products" : "WhatsApp Flow"}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Close"
+                        onClick={() => setRichOpen(false)}
+                        className="rounded-full p-1 text-slate-400 hover:bg-slate-200"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <p className="text-slate-500">The text in the reply box below is the message shown with it.</p>
+
+                    {richTab === "products" ? (
+                      catalogLoading ? (
+                        <p className="text-slate-500">Loading your catalog…</p>
+                      ) : catalogError ? (
+                        <p className="rounded-lg bg-red-50 px-3 py-2 text-red-700">{catalogError}</p>
+                      ) : catalog && catalog.products.length === 0 ? (
+                        <p className="text-slate-500">Your catalog has no products yet.</p>
+                      ) : catalog ? (
+                        <>
+                          <ul className="max-h-40 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                            {catalog.products.map((p) => (
+                              <li key={p.retailerId}>
+                                <label className="flex cursor-pointer items-center gap-2.5 px-3 py-2 hover:bg-slate-50">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedProducts.includes(p.retailerId)}
+                                    onChange={(e) =>
+                                      setSelectedProducts((prev) =>
+                                        e.target.checked
+                                          ? [...prev, p.retailerId]
+                                          : prev.filter((id) => id !== p.retailerId)
+                                      )
+                                    }
+                                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                                  />
+                                  <span className="min-w-0 flex-1 truncate text-slate-700">{p.name}</span>
+                                  {p.price && <span className="shrink-0 text-slate-400">{p.price}</span>}
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">
+                              {selectedProducts.length === 0
+                                ? "Pick 1 product for a card, or several for a list."
+                                : `${selectedProducts.length} selected`}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="primary"
+                              onClick={sendProducts}
+                              disabled={!draft.trim() || selectedProducts.length === 0 || sending}
+                            >
+                              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                              Send {selectedProducts.length > 1 ? "products" : "product"}
+                            </Button>
+                          </div>
+                        </>
+                      ) : null
+                    ) : flowsLoading ? (
+                      <p className="text-slate-500">Loading your Flows…</p>
+                    ) : flowsError ? (
+                      <p className="rounded-lg bg-red-50 px-3 py-2 text-red-700">{flowsError}</p>
+                    ) : flows && flows.length === 0 ? (
+                      <p className="text-slate-500">
+                        You have no Flows yet. Build one in Meta&apos;s Flow Builder (WhatsApp Manager → Flows), then it shows up here.
+                      </p>
+                    ) : flows ? (
+                      <>
+                        <select
+                          value={selectedFlowId}
+                          onChange={(e) => setSelectedFlowId(e.target.value)}
+                          aria-label="Choose a Flow"
+                          className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                        >
+                          <option value="">Choose a Flow…</option>
+                          {flows.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name}
+                              {f.status === "DRAFT" ? " (draft — test only)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={flowCta}
+                            onChange={(e) => setFlowCta(e.target.value)}
+                            maxLength={30}
+                            aria-label="Flow button text"
+                            placeholder="Button text"
+                            className="h-9 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                          />
+                          <Button
+                            type="button"
+                            variant="primary"
+                            onClick={sendFlow}
+                            disabled={!draft.trim() || !selectedFlowId || !flowCta.trim() || sending}
+                          >
+                            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            Send Flow
+                          </Button>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                )}
+
                 {locationOpen && !windowClosed && (
                   <div className="shrink-0 space-y-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs">
                     <div className="flex items-center justify-between">
@@ -1364,6 +1627,7 @@ function InboxPageInner() {
                     title="Reply buttons / list menu"
                     onClick={() => {
                       setLocationOpen(false);
+                      setRichOpen(false);
                       setInteractiveOpen((o) => !o);
                     }}
                     disabled={active.consent === "opted_out" || windowClosed}
@@ -1376,11 +1640,21 @@ function InboxPageInner() {
                     title="Send a location"
                     onClick={() => {
                       setInteractiveOpen(false);
+                      setRichOpen(false);
                       setLocationOpen((o) => !o);
                     }}
                     disabled={active.consent === "opted_out" || windowClosed}
                   >
                     <MapPin className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    aria-label="Send catalog products or a WhatsApp Flow"
+                    title="Catalog products / WhatsApp Flow"
+                    onClick={toggleRichPanel}
+                    disabled={active.consent === "opted_out" || windowClosed}
+                  >
+                    <ShoppingBag className="h-4 w-4" />
                   </Button>
                   <input
                     value={draft}

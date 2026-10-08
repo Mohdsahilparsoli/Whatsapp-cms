@@ -53,6 +53,15 @@ interface IncomingMessage {
     type: string;
     button_reply?: { id: string; title: string };
     list_reply?: { id: string; title: string };
+    /** The customer's submitted answers from a WhatsApp Flow. response_json
+     * is a JSON *string* of {field: value, ..., flow_token}. */
+    nfm_reply?: { name?: string; body?: string; response_json?: string };
+  };
+  /** A cart the customer sent from our catalog. */
+  order?: {
+    catalog_id?: string;
+    text?: string;
+    product_items?: { product_retailer_id?: string; quantity?: number; item_price?: number; currency?: string }[];
   };
   /** Present when the customer swiped-to-reply/quoted one of our earlier
    * messages — `id` is that earlier message's own WhatsApp message id
@@ -234,6 +243,42 @@ async function downloadAndStoreIncomingMedia(
   }
 }
 
+/** "first_name" → "First name" */
+function prettyKey(key: string): string {
+  const spaced = key.replace(/[_-]+/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** A submitted WhatsApp Flow → readable lines for the Inbox thread. */
+function formatFlowResponse(responseJson: string | undefined): string {
+  const header = "📋 Flow response";
+  if (!responseJson) return header;
+  try {
+    const parsed = JSON.parse(responseJson) as Record<string, unknown>;
+    const lines = Object.entries(parsed)
+      .filter(([key]) => key !== "flow_token")
+      .map(([key, value]) => {
+        const shown =
+          Array.isArray(value) ? value.join(", ") : value !== null && typeof value === "object" ? JSON.stringify(value) : String(value);
+        return `${prettyKey(key)}: ${shown}`;
+      });
+    return lines.length > 0 ? `${header}\n${lines.join("\n")}` : header;
+  } catch {
+    return `${header}\n${responseJson}`;
+  }
+}
+
+/** A catalog cart the customer sent → readable lines for the Inbox thread. */
+function formatOrder(order: NonNullable<IncomingMessage["order"]>): string {
+  const items = order.product_items ?? [];
+  const lines = items.map((item) => {
+    const price = item.item_price != null ? ` @ ${item.item_price} ${item.currency ?? ""}`.trimEnd() : "";
+    return `• ${item.product_retailer_id ?? "Item"} × ${item.quantity ?? 1}${price}`;
+  });
+  const note = order.text?.trim() ? `\n\n“${order.text.trim()}”` : "";
+  return `🛒 Order (${items.length} item${items.length === 1 ? "" : "s"})\n${lines.join("\n")}${note}`;
+}
+
 async function resolveClientId(phoneNumberId: string): Promise<string | null> {
   const account = await prisma.whatsAppAccount.findFirst({
     where: { phoneNumberId, connected: true },
@@ -274,13 +319,18 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
         mediaFileName = downloaded.fileName;
       }
     }
+  } else if (message.type === "order" && message.order) {
+    text = formatOrder(message.order);
   } else if (message.type === "button") {
     // A tap on a Meta Message Template's QUICK_REPLY button — treat its
     // label like a normal text reply from the customer (see
     // lib/metaTemplates.ts's toMetaButtons for how these buttons are sent).
     text = message.button?.text ?? "";
   } else if (message.type === "interactive") {
-    text = message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title ?? "";
+    text =
+      message.interactive?.button_reply?.title ??
+      message.interactive?.list_reply?.title ??
+      (message.interactive?.nfm_reply ? formatFlowResponse(message.interactive.nfm_reply.response_json) : "");
   } else if (message.type === "image") {
     type = "image";
     text = message.image?.caption ?? "";
