@@ -1,10 +1,10 @@
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { storeFile } from "@/lib/fileStorage";
 import { normalizeMetaStatus } from "@/lib/metaTemplates";
 import { normalizePhone } from "@/lib/phone";
-import { randomUUID } from "node:crypto";
 
 /**
  * Meta's one-time verification handshake when you save this URL as the
@@ -68,6 +68,16 @@ interface IncomingMessage {
    * (matches ChatMessage.whatsappMessageId), which lets the Inbox show the
    * same quoted-reply preview WhatsApp itself shows them. */
   context?: { id?: string };
+  /** Customer reacted to one of our messages (empty emoji = reaction removed). */
+  reaction?: { message_id?: string; emoji?: string };
+  /** Present on the first message of a Click-to-WhatsApp ad conversation. */
+  referral?: {
+    source_url?: string;
+    source_id?: string;
+    source_type?: string;
+    headline?: string;
+    ctwa_clid?: string;
+  };
 }
 
 interface ChangeValue {
@@ -112,8 +122,14 @@ interface TemplateStatusValue {
  * rather than surfaced as a failed HTTP response.
  */
 export async function POST(request: Request) {
+  // Raw body first: Meta signs the exact bytes, so verify before parsing.
+  const rawBody = await request.text();
+  if (!isValidSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
+    return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
+  }
+
   try {
-    const body = await request.json();
+    const body = JSON.parse(rawBody);
     const entries: { changes?: { field?: string; value?: ChangeValue | TemplateStatusValue }[] }[] =
       body?.entry ?? [];
 
@@ -151,6 +167,30 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Meta signs every webhook POST with HMAC-SHA256 of the raw body using the
+ * app secret, sent as `X-Hub-Signature-256: sha256=<hex>`. Enforced whenever
+ * META_APP_SECRET is configured (it is, for Embedded Signup); without it the
+ * check can't run, so it's skipped with a warning rather than breaking an
+ * existing setup.
+ */
+function isValidSignature(rawBody: string, header: string | null): boolean {
+  const secret = process.env.META_APP_SECRET;
+  if (!secret) {
+    console.warn("[webhook] META_APP_SECRET not set — webhook signatures are NOT being verified.");
+    return true;
+  }
+  if (!header?.startsWith("sha256=")) return false;
+  const expected = createHmac("sha256", secret).update(rawBody).digest();
+  let received: Buffer;
+  try {
+    received = Buffer.from(header.slice("sha256=".length), "hex");
+  } catch {
+    return false;
+  }
+  return received.length === expected.length && timingSafeEqual(received, expected);
 }
 
 const MIME_EXTENSIONS: Record<string, string> = {
@@ -306,6 +346,17 @@ async function recordIncomingMessage(
   const phone = normalizePhone(message.from);
   const when = message.timestamp ? new Date(Number(message.timestamp) * 1000) : new Date();
 
+  // A reaction isn't a chat message — it decorates one of ours.
+  if (message.type === "reaction") {
+    if (message.reaction?.message_id) {
+      await prisma.chatMessage.updateMany({
+        where: { clientId, whatsappMessageId: message.reaction.message_id },
+        data: { customerReaction: message.reaction.emoji || null },
+      });
+    }
+    return;
+  }
+
   let text = "";
   let type: "text" | "image" | "document" | "video" | "audio" | "location" = "text";
   let location: { latitude: number; longitude: number; name: string | null; address: string | null } | null = null;
@@ -394,6 +445,18 @@ async function recordIncomingMessage(
     ? await prisma.chatMessage.findFirst({ where: { whatsappMessageId: message.context.id, clientId } })
     : null;
 
+  // Click-to-WhatsApp attribution: only the ad's first message carries it,
+  // so it's saved when present and never cleared by later messages.
+  const adFields = message.referral
+    ? {
+        adSourceType: message.referral.source_type ?? null,
+        adSourceId: message.referral.source_id ?? null,
+        adSourceUrl: message.referral.source_url ?? null,
+        adHeadline: message.referral.headline ?? null,
+        adClickId: message.referral.ctwa_clid ?? null,
+      }
+    : {};
+
   const conversation = await prisma.conversation.upsert({
     where: { clientId_contactPhone: { clientId, contactPhone: phone } },
     update: {
@@ -402,6 +465,7 @@ async function recordIncomingMessage(
       unreadCount: { increment: 1 },
       // Remember which of the client's numbers this customer wrote to.
       ...(phoneNumberId ? { phoneNumberId } : {}),
+      ...adFields,
     },
     create: {
       clientId,
@@ -410,6 +474,7 @@ async function recordIncomingMessage(
       lastMessageAt: when,
       unreadCount: 1,
       phoneNumberId: phoneNumberId ?? null,
+      ...adFields,
     },
   });
 
@@ -435,6 +500,89 @@ async function recordIncomingMessage(
       replyToDirection: repliedTo?.direction ?? null,
     },
   });
+
+  if (message.type === "text") {
+    await handleConsentKeyword(clientId, phone, senderName, text, phoneNumberId);
+  }
+}
+
+const OPT_OUT_WORDS = new Set(["stop", "unsubscribe", "cancel", "end", "quit", "optout", "opt out", "stop all"]);
+const OPT_IN_WORDS = new Set(["start", "subscribe", "unstop", "optin", "opt in", "yes subscribe"]);
+
+/**
+ * Meta's marketing rules: a customer who texts STOP (or similar) must stop
+ * receiving marketing messages. Campaigns and Bulk Sender already send only
+ * to opted_in contacts, so flipping the contact's consent is what actually
+ * stops them. START re-subscribes. Only an exact keyword counts — "please
+ * don't stop" must not unsubscribe anyone. A confirmation goes back inside
+ * the 24h window the customer just opened.
+ */
+async function handleConsentKeyword(
+  clientId: string,
+  phone: string,
+  senderName: string | null,
+  rawText: string,
+  phoneNumberId?: string
+) {
+  const word = rawText.trim().toLowerCase().replace(/[.!]+$/, "");
+  const optOut = OPT_OUT_WORDS.has(word);
+  const optIn = OPT_IN_WORDS.has(word);
+  if (!optOut && !optIn) return;
+
+  const consent = optOut ? "opted_out" : "opted_in";
+  const last10 = phone.slice(-10);
+  const existing = await prisma.contact.findFirst({ where: { clientId, phone: { endsWith: last10 } } });
+  if (existing) {
+    await prisma.contact.update({
+      where: { id: existing.id },
+      data: { consent, consentSource: optOut ? "Customer replied STOP" : "Customer replied START", consentDate: new Date() },
+    });
+  } else {
+    await prisma.contact.create({
+      data: {
+        clientId,
+        phone,
+        name: senderName,
+        consent,
+        consentSource: optOut ? "Customer replied STOP" : "Customer replied START",
+        tags: ["normal"],
+      },
+    });
+  }
+
+  const credentials = await getWhatsAppCredentials(clientId, phoneNumberId);
+  if (!credentials) return;
+  const confirmation = optOut
+    ? "You've been unsubscribed and won't receive promotional messages from us. Reply START anytime to subscribe again."
+    : "You're subscribed again. Thanks!";
+  try {
+    const res = await fetch(`https://graph.facebook.com/v25.0/${credentials.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${credentials.accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", to: phone, type: "text", text: { body: confirmation } }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const conversation = await prisma.conversation.findUnique({
+        where: { clientId_contactPhone: { clientId, contactPhone: phone } },
+      });
+      if (conversation) {
+        await prisma.chatMessage.create({
+          data: {
+            conversationId: conversation.id,
+            clientId,
+            direction: "outbound",
+            type: "text",
+            text: confirmation,
+            whatsappMessageId: data.messages?.[0]?.id ?? null,
+            status: "sent",
+          },
+        });
+      }
+    }
+  } catch {
+    // Confirmation is a courtesy; the consent change above is what matters.
+  }
 }
 
 /**

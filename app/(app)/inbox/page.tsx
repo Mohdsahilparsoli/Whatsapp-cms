@@ -20,6 +20,7 @@ import {
   Paperclip,
   Search,
   Send,
+  SmilePlus,
   Trash2,
   X,
 } from "lucide-react";
@@ -71,6 +72,8 @@ interface RealMessage {
   replyToText: string | null;
   replyToType: string | null;
   replyToDirection: string | null;
+  customerReaction: string | null;
+  agentReaction: string | null;
   createdAt: string;
 }
 
@@ -126,6 +129,8 @@ function InboxPageInner() {
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeMessages, setActiveMessages] = useState<RealMessage[]>([]);
+  const [adInfo, setAdInfo] = useState<{ type: string | null; url: string | null; headline: string | null } | null>(null);
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
   // True only for the moment a conversation is first opened — set in
   // openConversation, cleared once its first message fetch lands — so
   // switching chats shows a real loading state instead of an empty pane
@@ -244,11 +249,33 @@ function InboxPageInner() {
     }
   }, []);
 
+  async function reactToMessage(message: RealMessage, emoji: string) {
+    setReactionPickerFor(null);
+    const next = message.agentReaction === emoji ? "" : emoji;
+    setActiveMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, agentReaction: next || null } : m)));
+    const res = await fetch("/api/whatsapp/send-reaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatMessageId: message.id, emoji: next }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setSendError(data.error ?? "Could not send the reaction.");
+      setActiveMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, agentReaction: message.agentReaction } : m)));
+    }
+  }
+
   const loadActiveMessages = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/inbox/conversations/${id}`);
       const data = await res.json();
       setActiveMessages(data.messages ?? []);
+      const c = data.conversation;
+      setAdInfo(
+        c && (c.adSourceType || c.adSourceUrl || c.adHeadline)
+          ? { type: c.adSourceType ?? null, url: c.adSourceUrl ?? null, headline: c.adHeadline ?? null }
+          : null
+      );
     } catch {
       // keep whatever was already shown
     } finally {
@@ -925,6 +952,18 @@ function InboxPageInner() {
                   </div>
                 </div>
 
+                {adInfo && (
+                  <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-violet-50 px-5 py-2 text-xs text-violet-800">
+                    <span className="font-medium">📣 Came from a Click-to-WhatsApp ad</span>
+                    {adInfo.headline && <span className="truncate">“{adInfo.headline}”</span>}
+                    {adInfo.url && (
+                      <a href={adInfo.url} target="_blank" rel="noopener noreferrer" className="ml-auto shrink-0 underline">
+                        View ad
+                      </a>
+                    )}
+                  </div>
+                )}
+
                 {selectMode && (
                   <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-indigo-50 px-4 py-2 text-sm">
                     <span className="font-medium text-indigo-900">{selectedIds.size} selected</span>
@@ -1202,11 +1241,43 @@ function InboxPageInner() {
                             {formatDateTime(message.createdAt)}
                             {message.direction === "outbound" && <Ticks status={message.status} />}
                           </p>
+                          {(message.customerReaction || message.agentReaction) && (
+                            <p className="mt-1 text-sm leading-none" aria-label="Reactions">
+                              {message.customerReaction}
+                              {message.agentReaction}
+                            </p>
+                          )}
                         </div>
                       </div>
 
                       {!selectMode && (
                         <div className="flex shrink-0 items-start gap-1 pt-2 opacity-0 transition-opacity group-hover:opacity-100">
+                          {message.direction === "inbound" && message.whatsappMessageId && (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                aria-label="React"
+                                onClick={() => setReactionPickerFor((cur) => (cur === message.id ? null : message.id))}
+                                className="rounded-full p-1 text-slate-400 hover:bg-slate-200/70 hover:text-slate-600"
+                              >
+                                <SmilePlus className="h-3.5 w-3.5" />
+                              </button>
+                              {reactionPickerFor === message.id && (
+                                <div className="absolute left-0 top-7 z-20 flex gap-1 rounded-full bg-white px-2 py-1 shadow-lg ring-1 ring-slate-200">
+                                  {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      onClick={() => reactToMessage(message, emoji)}
+                                      className="rounded px-0.5 text-base hover:bg-slate-100"
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <button
                             type="button"
                             aria-label="Reply"

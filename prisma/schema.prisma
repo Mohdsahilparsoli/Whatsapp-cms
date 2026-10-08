@@ -522,6 +522,14 @@ model Conversation {
   /// right line. Null = the client's primary number.
   phoneNumberId String?
 
+  /// Click-to-WhatsApp ad attribution — set when the customer's message came
+  /// from an ad / post (Meta's `referral` object on the message).
+  adSourceType String?
+  adSourceId   String?
+  adSourceUrl  String?
+  adHeadline   String?
+  adClickId    String?
+
   messages ChatMessage[]
 
   createdAt DateTime @default(now())
@@ -570,6 +578,10 @@ model ChatMessage {
 
   whatsappMessageId String? @unique
   status            String  @default("sent") // sent | delivered | read | failed — outbound only
+  /// Emoji the customer reacted to this (outbound) message with.
+  customerReaction  String?
+  /// Emoji an agent reacted to this (inbound) message with.
+  agentReaction     String?
 
   /// Which campaign/template this OUTBOUND message came from, if it was a
   /// campaign/bulk send rather than a manual Inbox reply — lets the Inbox

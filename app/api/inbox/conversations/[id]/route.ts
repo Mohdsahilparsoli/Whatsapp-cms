@@ -20,6 +20,9 @@ export async function GET(_request: Request, { params }: Params) {
       id: conversation.id,
       contactPhone: conversation.contactPhone,
       contactName: conversation.contactName,
+      adSourceType: conversation.adSourceType,
+      adSourceUrl: conversation.adSourceUrl,
+      adHeadline: conversation.adHeadline,
     },
     messages: conversation.messages.map(
       (m: {
@@ -41,6 +44,8 @@ export async function GET(_request: Request, { params }: Params) {
         replyToText: string | null;
         replyToType: string | null;
         replyToDirection: string | null;
+        customerReaction: string | null;
+        agentReaction: string | null;
         createdAt: Date;
       }) => ({
         id: m.id,
@@ -61,6 +66,8 @@ export async function GET(_request: Request, { params }: Params) {
         replyToText: m.replyToText,
         replyToType: m.replyToType,
         replyToDirection: m.replyToDirection,
+        customerReaction: m.customerReaction,
+        agentReaction: m.agentReaction,
         createdAt: m.createdAt.toISOString(),
       })
     ),
