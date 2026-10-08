@@ -239,6 +239,18 @@ model CustomTemplate {
   buttons   Json     @default("[]")
   variables String[] @default([])
 
+  /// "positional" ({{1}}, {{2}}…) or "named" ({{first_name}}…). For named
+  /// templates `variables` holds the parameter NAMES, in order.
+  parameterFormat String @default("positional")
+  /// standard | coupon | lto (limited-time offer) | carousel | authentication.
+  /// Kind-specific settings live in `extra`:
+  ///   coupon:         { couponCode }
+  ///   lto:            { offerText, expiresInHours, couponCode? }
+  ///   carousel:       { cards: [{ mediaKind, mediaUrl, mediaFileName, body, buttons[] }] }
+  ///   authentication: { expiryMinutes, securityRecommendation }
+  templateKind String @default("standard")
+  extra        Json   @default("{}")
+
   /// Real Meta Message Template submission tracking (see MetaTemplateStatus
   /// above). metaTemplateId is Meta's own id for this template once
   /// submitted — used to send via the real type:"template" API once

@@ -59,6 +59,9 @@ export async function POST(request: Request) {
       mediaFileName: t.mediaFileName,
       buttons: t.buttons,
       variables: t.variables,
+      parameterFormat: t.parameterFormat,
+      templateKind: t.templateKind,
+      extra: t.extra as object,
     },
   });
 

@@ -1,3 +1,5 @@
+import { fillParams } from "@/lib/templateParams";
+
 export function cn(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
 }
@@ -121,12 +123,15 @@ export function percent(part: number, total: number) {
   return Math.round((part / total) * 100);
 }
 
-/** Replaces {{1}}, {{2}} … with the provided sample values. */
-export function fillTemplate(body: string, values: string[]) {
-  return body.replace(/\{\{(\d+)\}\}/g, (match, index) => {
-    const value = values[Number(index) - 1];
-    return value && value.trim() ? value : match;
-  });
+/** Replaces {{1}}, {{2}} … (or {{first_name}} … for named templates, whose
+ * `names` list gives each name's position) with the provided values. */
+export function fillTemplate(
+  body: string,
+  values: string[],
+  format: "positional" | "named" = "positional",
+  names: string[] = []
+) {
+  return fillParams(body, values, format, names);
 }
 
 export function downloadCsv(filename: string, rows: (string | number)[][]) {

@@ -23,6 +23,11 @@ export interface TemplateLike {
    * which branches to it when metaStatus is "approved". Optional here so
    * this interface still fits every existing free-form-only caller. */
   name?: string;
+  parameterFormat?: string;
+  /** Parameter names for a named template. */
+  variables?: string[];
+  templateKind?: string;
+  extra?: unknown;
   metaStatus?: string;
   metaTemplateId?: string | null;
   metaLanguageCode?: string | null;

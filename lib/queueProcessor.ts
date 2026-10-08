@@ -8,6 +8,7 @@ import { personalizeVariables } from "@/lib/personalize";
 import { fillTemplate } from "@/lib/utils";
 import { normalizePhone } from "@/lib/phone";
 import { getSendPolicy } from "@/lib/sendPolicy";
+import type { TemplateExtra, TemplateKind } from "@/types";
 
 interface BatchContact {
   id: string;
@@ -43,17 +44,23 @@ export function buildPayloadForContact(
         body: template.body,
         mediaKind: template.mediaKind,
         mediaUrl: template.mediaUrl,
+        parameterFormat: template.parameterFormat === "named" ? "named" : "positional",
+        variables: template.variables,
+        templateKind: (template.templateKind ?? "standard") as TemplateKind,
+        extra: (template.extra ?? {}) as TemplateExtra,
       },
       values,
       origin
     ).payload;
   }
 
+  const format = template.parameterFormat === "named" ? "named" : "positional";
+  const names = template.variables ?? [];
   return buildOutboundMessage(
     {
-      header: template.header ? fillTemplate(template.header, values) : null,
-      body: fillTemplate(template.body, values),
-      footer: template.footer ? fillTemplate(template.footer, values) : null,
+      header: template.header ? fillTemplate(template.header, values, format, names) : null,
+      body: fillTemplate(template.body, values, format, names),
+      footer: template.footer ? fillTemplate(template.footer, values, format, names) : null,
       mediaKind: template.mediaKind,
       mediaUrl: template.mediaUrl,
       buttons: template.buttons,

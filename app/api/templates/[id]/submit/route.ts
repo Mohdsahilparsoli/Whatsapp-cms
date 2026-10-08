@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireClient } from "@/lib/apiGuards";
 import { toPublicTemplate } from "@/lib/templateMapper";
 import { submitTemplateToMeta, toMetaLanguageCode } from "@/lib/metaTemplates";
-import type { TemplateButtonKind } from "@/types";
+import type { TemplateButtonKind, TemplateExtra, TemplateKind } from "@/types";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -52,6 +52,10 @@ export async function POST(request: Request, { params }: Params) {
     mediaKind: template.mediaKind,
     mediaUrl: template.mediaUrl,
     origin: new URL(request.url).origin,
+    parameterFormat: template.parameterFormat === "named" ? "named" : "positional",
+    variables: template.variables,
+    templateKind: template.templateKind as TemplateKind,
+    extra: (template.extra ?? {}) as TemplateExtra,
   });
 
   if (!result.ok) {

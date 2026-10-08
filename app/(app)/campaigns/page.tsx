@@ -14,7 +14,7 @@ import Drawer from "@/components/ui/Drawer";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import FormField, { SelectField } from "@/components/ui/FormField";
 import InlineAlert from "@/components/ui/InlineAlert";
-import TemplatePreview from "@/components/templates/TemplatePreview";
+import TemplatePreview, { previewKindProps } from "@/components/templates/TemplatePreview";
 import { useCustomTemplates } from "@/lib/customTemplates";
 import { getPageMeta } from "@/lib/nav";
 import { cn, formatDateTime, formatNumber, nowForInput, percent } from "@/lib/utils";
@@ -520,6 +520,7 @@ export default function CampaignsPage() {
                   footer={template.footer}
                   media={template.media}
                   buttons={template.buttons}
+                  {...previewKindProps(template)}
                   values={template.variables}
                 />
                 <p className="text-xs text-slate-500">

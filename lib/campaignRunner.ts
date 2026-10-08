@@ -4,6 +4,7 @@ import { fillTemplate } from "@/lib/utils";
 import { enqueueAndProcess, buildPayloadForContact } from "@/lib/queueProcessor";
 import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
 import { personalizeVariables } from "@/lib/personalize";
+import { advancedTemplateBlock } from "@/lib/templateKinds";
 import { getAppOrigin } from "@/lib/appUrl";
 
 /**
@@ -29,6 +30,12 @@ export async function runCampaign(campaignId: string): Promise<{ blocked?: strin
     return {};
   }
 
+  const kindBlock = advancedTemplateBlock(template);
+  if (kindBlock) {
+    await prisma.campaign.update({ where: { id: campaignId }, data: { status: "failed" } });
+    return { blocked: kindBlock };
+  }
+
   const contacts = await prisma.contact.findMany({
     where: {
       clientId: campaign.clientId,
@@ -45,6 +52,7 @@ export async function runCampaign(campaignId: string): Promise<{ blocked?: strin
   });
 
   const origin = getAppOrigin();
+  const fmt = template.parameterFormat === "named" ? "named" : "positional";
 
   // Campaigns don't currently collect any shared ({{2}}, {{3}}, ...) values
   // of their own — {{1}} still auto-fills per contact with their own name
@@ -54,9 +62,9 @@ export async function runCampaign(campaignId: string): Promise<{ blocked?: strin
   // name or an actual value — that's fixed here.
   const { preview } = buildOutboundMessage(
     {
-      header: template.header ? fillTemplate(template.header, personalizeVariables([], {})) : null,
-      body: fillTemplate(template.body, personalizeVariables([], {})),
-      footer: template.footer ? fillTemplate(template.footer, personalizeVariables([], {})) : null,
+      header: template.header ? fillTemplate(template.header, personalizeVariables([], {}), fmt, template.variables) : null,
+      body: fillTemplate(template.body, personalizeVariables([], {}), fmt, template.variables),
+      footer: template.footer ? fillTemplate(template.footer, personalizeVariables([], {}), fmt, template.variables) : null,
       mediaKind: template.mediaKind,
       mediaUrl: template.mediaUrl,
       buttons: template.buttons,

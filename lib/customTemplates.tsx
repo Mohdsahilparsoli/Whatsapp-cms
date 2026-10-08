@@ -25,6 +25,9 @@ export function customToView(template: CustomTemplate): TemplateView {
     media: template.media,
     buttons: template.buttons,
     variables: template.variables,
+    parameterFormat: template.parameterFormat,
+    templateKind: template.templateKind,
+    extra: template.extra,
     metaStatus: template.metaStatus,
     metaRejectionReason: template.metaRejectionReason,
     updatedAt: template.updatedAt,
@@ -55,6 +58,9 @@ export function emptyDraft(): CustomTemplateDraft {
     media: { kind: "none", url: "" },
     buttons: [],
     variables: [],
+    parameterFormat: "positional",
+    templateKind: "standard",
+    extra: {},
   };
 }
 

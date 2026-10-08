@@ -2,6 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { normalizeMetaStatus } from "@/lib/metaTemplates";
+import { extractParams } from "@/lib/templateParams";
+import type { TemplateExtra, TemplateKind } from "@/types";
 
 /**
  * Full template sync FROM Meta: pulls every Message Template on the
@@ -15,10 +17,10 @@ import { normalizeMetaStatus } from "@/lib/metaTemplates";
  * content are refreshed from Meta (Meta is the source of truth once a
  * template is submitted). A brand-new Meta template is imported as a
  * "custom" template. Anything this app can't faithfully send is SKIPPED with
- * a reason rather than imported half-broken (Authentication/OTP templates,
- * named {{variables}}, carousel and other newer component types, and a
- * same-name template in another language, since a client's template names
- * are unique here).
+ * a reason rather than imported half-broken (carousel and other newer
+ * component types, and a same-name template in another language, since a
+ * client's template names are unique here). Named variables, coupon,
+ * limited-time-offer and Authentication (OTP) templates are imported.
  *
  * Never deletes anything: a template removed on Meta's side stays here.
  */
@@ -44,6 +46,7 @@ interface MetaButton {
   text?: string;
   url?: string;
   phone_number?: string;
+  example?: string | string[];
 }
 
 interface MetaComponent {
@@ -51,6 +54,9 @@ interface MetaComponent {
   format?: string;
   text?: string;
   buttons?: MetaButton[];
+  add_security_recommendation?: boolean;
+  code_expiration_minutes?: number;
+  limited_time_offer?: { text?: string; has_expiration?: boolean };
 }
 
 interface MetaTemplate {
@@ -77,29 +83,67 @@ function placeholderCount(text: string): number {
   return matches.reduce((max, m) => Math.max(max, Number(m.replace(/\D/g, ""))), 0);
 }
 
-function hasNamedPlaceholder(text: string): boolean {
-  return /\{\{\s*[A-Za-z_]/.test(text);
-}
-
 /** Turns one Meta template into the CustomTemplate columns, or a skip reason. */
 function mapTemplate(
   t: MetaTemplate
 ): { ok: true; data: MappedTemplate } | { ok: false; reason: string } {
   const category =
-    t.category === "MARKETING" ? "Marketing" : t.category === "UTILITY" ? "Utility" : null;
-  if (!category) {
+    t.category === "MARKETING"
+      ? "Marketing"
+      : t.category === "UTILITY"
+        ? "Utility"
+        : t.category === "AUTHENTICATION"
+          ? "Authentication"
+          : null;
+  if (!category) return { ok: false, reason: "Unsupported template category" };
+
+  const components = t.components ?? [];
+  const languageCode = t.language ?? "en_US";
+  const common = {
+    name: t.name,
+    language: LANGUAGE_NAMES[languageCode] ?? languageCode,
+    category,
+    metaTemplateId: t.id,
+    metaStatus: normalizeMetaStatus(t.status),
+    metaLanguageCode: languageCode,
+    metaRejectionReason: t.rejected_reason && t.rejected_reason !== "NONE" ? t.rejected_reason : null,
+  } as const;
+
+  // Authentication (OTP): Meta owns the text; we keep the two settings.
+  if (category === "Authentication") {
+    const body = components.find((c) => c.type === "BODY");
+    const footer = components.find((c) => c.type === "FOOTER");
     return {
-      ok: false,
-      reason:
-        t.category === "AUTHENTICATION"
-          ? "Authentication (OTP) templates can't be sent from campaigns"
-          : "Unsupported template category",
+      ok: true,
+      data: {
+        ...common,
+        header: null,
+        body: body?.text ?? "{{1}} is your verification code.",
+        footer: null,
+        mediaKind: "none",
+        buttons: [],
+        variables: ["Code"],
+        parameterFormat: "positional",
+        templateKind: "authentication",
+        extra: {
+          expiryMinutes: footer?.code_expiration_minutes ?? 10,
+          securityRecommendation: body?.add_security_recommendation !== false,
+        },
+      },
     };
   }
 
-  const components = t.components ?? [];
-  const unsupported = components.find((c) => !["HEADER", "BODY", "FOOTER", "BUTTONS"].includes(c.type ?? ""));
-  if (unsupported) return { ok: false, reason: `Uses an unsupported component (${unsupported.type})` };
+  const supported = ["HEADER", "BODY", "FOOTER", "BUTTONS", "LIMITED_TIME_OFFER"];
+  const unsupported = components.find((c) => !supported.includes(c.type ?? ""));
+  if (unsupported) {
+    return {
+      ok: false,
+      reason:
+        unsupported.type === "CAROUSEL"
+          ? "Carousel templates can't be imported (their card media stays in Meta) — create them here instead"
+          : `Uses an unsupported component (${unsupported.type})`,
+    };
+  }
 
   const body = components.find((c) => c.type === "BODY")?.text;
   if (!body) return { ok: false, reason: "Has no body text" };
@@ -107,10 +151,12 @@ function mapTemplate(
   const header = components.find((c) => c.type === "HEADER");
   const footer = components.find((c) => c.type === "FOOTER")?.text ?? null;
   const buttonList = components.find((c) => c.type === "BUTTONS")?.buttons ?? [];
+  const lto = components.find((c) => c.type === "LIMITED_TIME_OFFER");
 
+  const named = t.parameter_format === "NAMED";
   const allText = [body, header?.text ?? "", footer ?? ""].join(" ");
-  if (t.parameter_format === "NAMED" || hasNamedPlaceholder(allText)) {
-    return { ok: false, reason: "Uses named {{variables}} (only {{1}}, {{2}}… are supported)" };
+  if (!named && /\{\{\s*[A-Za-z_]/.test(allText)) {
+    return { ok: false, reason: "Uses named {{variables}} without a declared named format" };
   }
 
   let mediaKind: "none" | "image" | "video" | "document" = "none";
@@ -125,35 +171,49 @@ function mapTemplate(
   }
 
   const buttons: { id: string; kind: "url" | "call" | "quick_reply"; label: string; url: string }[] = [];
+  let couponCode: string | undefined;
   for (const [i, b] of buttonList.entries()) {
     const label = b.text ?? "";
     if (b.type === "URL") buttons.push({ id: `btn-${i}`, kind: "url", label, url: b.url ?? "" });
     else if (b.type === "PHONE_NUMBER") buttons.push({ id: `btn-${i}`, kind: "call", label, url: b.phone_number ?? "" });
     else if (b.type === "QUICK_REPLY") buttons.push({ id: `btn-${i}`, kind: "quick_reply", label, url: "" });
+    else if (b.type === "COPY_CODE") couponCode = (Array.isArray(b.example) ? b.example[0] : b.example) ?? "";
     else return { ok: false, reason: `Unsupported button type (${b.type})` };
   }
 
-  const count = Math.max(placeholderCount(body), placeholderCount(headerText ?? ""));
-  const variables = Array.from({ length: count }, (_, i) => (i === 0 ? "Name" : `Variable ${i + 1}`));
+  let templateKind: TemplateKind = "standard";
+  const extra: TemplateExtra = {};
+  if (lto) {
+    templateKind = "lto";
+    extra.offerText = lto.limited_time_offer?.text ?? "";
+    extra.expiresInHours = 48;
+    if (couponCode) extra.couponCode = couponCode;
+  } else if (couponCode !== undefined) {
+    templateKind = "coupon";
+    extra.couponCode = couponCode;
+  }
 
-  const languageCode = t.language ?? "en_US";
+  let variables: string[];
+  if (named) {
+    variables = extractParams(`${headerText ?? ""} ${body}`);
+  } else {
+    const count = Math.max(placeholderCount(body), placeholderCount(headerText ?? ""));
+    variables = Array.from({ length: count }, (_, i) => (i === 0 ? "Name" : `Variable ${i + 1}`));
+  }
+
   return {
     ok: true,
     data: {
-      name: t.name,
-      language: LANGUAGE_NAMES[languageCode] ?? languageCode,
-      category,
+      ...common,
       header: headerText,
       body,
       footer,
       mediaKind,
       buttons,
       variables,
-      metaTemplateId: t.id,
-      metaStatus: normalizeMetaStatus(t.status),
-      metaLanguageCode: languageCode,
-      metaRejectionReason:
-        t.rejected_reason && t.rejected_reason !== "NONE" ? t.rejected_reason : null,
+      parameterFormat: named ? "named" : "positional",
+      templateKind,
+      extra,
     },
   };
 }
@@ -161,13 +221,16 @@ function mapTemplate(
 interface MappedTemplate {
   name: string;
   language: string;
-  category: "Marketing" | "Utility";
+  category: "Marketing" | "Utility" | "Authentication";
   header: string | null;
   body: string;
   footer: string | null;
   mediaKind: "none" | "image" | "video" | "document";
   buttons: { id: string; kind: "url" | "call" | "quick_reply"; label: string; url: string }[];
   variables: string[];
+  parameterFormat: "positional" | "named";
+  templateKind: TemplateKind;
+  extra: TemplateExtra;
   metaTemplateId: string;
   metaStatus: ReturnType<typeof normalizeMetaStatus>;
   metaLanguageCode: string;
@@ -250,6 +313,9 @@ export async function syncTemplatesFromMeta(clientId: string): Promise<SyncOutco
           footer: d.footer,
           buttons: d.buttons,
           variables: d.variables,
+          parameterFormat: d.parameterFormat,
+          templateKind: d.templateKind,
+          extra: d.extra as object,
           metaStatus: d.metaStatus,
           metaLanguageCode: d.metaLanguageCode,
           metaRejectionReason: d.metaRejectionReason,
@@ -284,6 +350,9 @@ export async function syncTemplatesFromMeta(clientId: string): Promise<SyncOutco
         mediaKind: d.mediaKind,
         buttons: d.buttons,
         variables: d.variables,
+        parameterFormat: d.parameterFormat,
+        templateKind: d.templateKind,
+        extra: d.extra as object,
         metaTemplateId: d.metaTemplateId,
         metaStatus: d.metaStatus,
         metaLanguageCode: d.metaLanguageCode,

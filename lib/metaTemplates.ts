@@ -1,6 +1,8 @@
 import "server-only";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { toWaMeUrl, type BuiltMessage } from "@/lib/whatsappMessage";
+import { extractParams, fillParams } from "@/lib/templateParams";
+import type { TemplateExtra, TemplateKind } from "@/types";
 
 /**
  * The real Meta WhatsApp Message Template system — submission (including
@@ -178,6 +180,11 @@ export interface SubmittableTemplate {
   /** This app's own base URL, only needed to turn a relative mediaUrl into
    * something both we and Meta can fetch over the internet. */
   origin: string;
+  parameterFormat?: "positional" | "named";
+  /** Parameter names (named templates) in order. */
+  variables?: string[];
+  templateKind?: TemplateKind;
+  extra?: TemplateExtra;
 }
 
 /**
@@ -281,17 +288,60 @@ export type BuildComponentsResult =
   | { ok: true; components: Record<string, unknown>[] }
   | { ok: false; error: string };
 
+/** Meta example values for a template text's placeholders. */
+function exampleFor(index: number, name?: string): string {
+  if (name) return name === "first_name" || name === "name" ? "Sahil" : `Sample ${name}`;
+  return index === 1 ? "Sahil" : `Sample ${index}`;
+}
+
+/** Body/header `example` block in whichever format the template uses. */
+function textExample(
+  kind: "body" | "header",
+  text: string,
+  named: boolean
+): Record<string, unknown> {
+  if (named) {
+    const names = extractParams(text);
+    if (names.length === 0) return {};
+    const list = names.map((n, i) => ({ param_name: n, example: exampleFor(i + 1, n) }));
+    return { example: kind === "body" ? { body_text_named_params: list } : { header_text_named_params: list } };
+  }
+  const indices = variableIndices(text);
+  if (indices.length === 0) return {};
+  const examples = indices.map((i) => exampleFor(i));
+  return { example: kind === "body" ? { body_text: [examples] } : { header_text: examples } };
+}
+
 /** Builds the `components` array Meta's Message Templates API expects.
  * {{1}} is always the recipient's own name by this app's convention (see
  * lib/personalize.ts) — Meta doesn't know that, it just needs a plausible
  * example value for each placeholder to accept the submission. Async
  * because a media header needs a real round-trip to Meta first
- * (uploadMediaHandle) to get its header_handle. */
+ * (uploadMediaHandle) to get its header_handle. Handles every template kind:
+ * standard, coupon (copy-code button), limited-time offer, carousel and
+ * authentication (OTP). */
 export async function buildTemplateComponents(
   t: SubmittableTemplate,
   accessToken: string,
   defaultCallingCode: string | null
 ): Promise<BuildComponentsResult> {
+  const kind = t.templateKind ?? "standard";
+  const extra = t.extra ?? {};
+  const named = t.parameterFormat === "named";
+
+  // Authentication (OTP): Meta writes the body itself; we only choose the
+  // security-recommendation line, the code's expiry and the copy-code button.
+  if (kind === "authentication") {
+    return {
+      ok: true,
+      components: [
+        { type: "BODY", add_security_recommendation: extra.securityRecommendation !== false },
+        { type: "FOOTER", code_expiration_minutes: extra.expiryMinutes ?? 10 },
+        { type: "BUTTONS", buttons: [{ type: "OTP", otp_type: "COPY_CODE", text: "Copy code" }] },
+      ],
+    };
+  }
+
   const components: Record<string, unknown>[] = [];
 
   if (t.mediaKind !== "none" && t.mediaUrl) {
@@ -308,33 +358,65 @@ export async function buildTemplateComponents(
       example: { header_handle: [uploaded.handle] },
     });
   } else if (t.header) {
-    const indices = variableIndices(t.header);
     components.push({
       type: "HEADER",
       format: "TEXT",
       text: t.header,
-      ...(indices.length > 0
-        ? { example: { header_text: indices.map((i) => (i === 1 ? "Sahil" : `Sample ${i}`)) } }
-        : {}),
+      ...textExample("header", t.header, named),
     });
   }
 
-  const bodyIndices = variableIndices(t.body);
+  if (kind === "lto") {
+    components.push({
+      type: "LIMITED_TIME_OFFER",
+      limited_time_offer: { text: (extra.offerText ?? "").slice(0, 16), has_expiration: true },
+    });
+  }
+
   components.push({
     type: "BODY",
     text: t.body,
-    ...(bodyIndices.length > 0
-      ? { example: { body_text: [bodyIndices.map((i) => (i === 1 ? "Sahil" : `Sample ${i}`))] } }
-      : {}),
+    ...textExample("body", t.body, named),
   });
+
+  if (kind === "carousel") {
+    const cards: Record<string, unknown>[] = [];
+    for (const card of extra.cards ?? []) {
+      const uploaded = await uploadMediaHandle(accessToken, card.mediaUrl, t.origin);
+      if (!uploaded.ok) {
+        return { ok: false, error: `Could not upload a carousel card's media to Meta — ${uploaded.error}` };
+      }
+      const cardComponents: Record<string, unknown>[] = [
+        { type: "HEADER", format: card.mediaKind.toUpperCase(), example: { header_handle: [uploaded.handle] } },
+        { type: "BODY", text: card.body },
+      ];
+      if (card.buttons.length > 0) {
+        cardComponents.push({
+          type: "BUTTONS",
+          buttons: card.buttons.map((b) =>
+            b.kind === "quick_reply"
+              ? { type: "QUICK_REPLY", text: b.label.slice(0, 25) }
+              : { type: "URL", text: b.label.slice(0, 20), url: b.url }
+          ),
+        });
+      }
+      cards.push({ components: cardComponents });
+    }
+    components.push({ type: "CAROUSEL", cards });
+    // Carousel templates carry their buttons on the cards, never at the top level.
+    return { ok: true, components };
+  }
 
   if (t.footer) {
     components.push({ type: "FOOTER", text: t.footer });
   }
 
-  if (t.buttons.length > 0) {
-    components.push({ type: "BUTTONS", buttons: toMetaButtons(t.buttons, defaultCallingCode) });
+  const buttons: Record<string, unknown>[] = [];
+  if ((kind === "coupon" || kind === "lto") && extra.couponCode) {
+    buttons.push({ type: "COPY_CODE", example: extra.couponCode });
   }
+  if (t.buttons.length > 0) buttons.push(...toMetaButtons(t.buttons, defaultCallingCode));
+  if (buttons.length > 0) components.push({ type: "BUTTONS", buttons });
 
   return { ok: true, components };
 }
@@ -384,6 +466,7 @@ export async function submitTemplateToMeta(
         name: t.name,
         language: languageCode,
         category: toMetaCategory(t.category),
+        ...(t.parameterFormat === "named" ? { parameter_format: "NAMED" } : {}),
         components,
       }),
     });
@@ -464,40 +547,93 @@ export function buildTemplateSendPayload(
     body: string;
     mediaKind?: "none" | "image" | "video" | "document";
     mediaUrl?: string | null;
+    parameterFormat?: "positional" | "named";
+    /** Parameter names, in order, for a named template. */
+    variables?: string[];
+    templateKind?: TemplateKind;
+    extra?: TemplateExtra;
   },
   values: string[],
   origin?: string
 ): BuiltMessage {
   const components: Record<string, unknown>[] = [];
+  const kind = t.templateKind ?? "standard";
+  const extra = t.extra ?? {};
+  const named = t.parameterFormat === "named";
+  const names = t.variables ?? [];
+  const absolute = (url: string) => (url.startsWith("http") ? url : `${origin ?? ""}${url}`);
+
+  /** The text parameters for one component's placeholders. */
+  const textParameters = (text: string) =>
+    named
+      ? extractParams(text).map((n) => ({
+          type: "text",
+          parameter_name: n,
+          text: values[names.indexOf(n)] ?? "",
+        }))
+      : variableIndices(text).map((i) => ({ type: "text", text: values[i - 1] ?? "" }));
 
   if (t.mediaKind && t.mediaKind !== "none" && t.mediaUrl) {
-    const absoluteUrl = t.mediaUrl.startsWith("http") ? t.mediaUrl : `${origin ?? ""}${t.mediaUrl}`;
     components.push({
       type: "header",
-      parameters: [{ type: t.mediaKind, [t.mediaKind]: { link: absoluteUrl } }],
+      parameters: [{ type: t.mediaKind, [t.mediaKind]: { link: absolute(t.mediaUrl) } }],
     });
   } else if (t.header) {
-    const indices = variableIndices(t.header);
-    if (indices.length > 0) {
-      components.push({
-        type: "header",
-        parameters: indices.map((i) => ({ type: "text", text: values[i - 1] ?? "" })),
-      });
-    }
+    const parameters = textParameters(t.header);
+    if (parameters.length > 0) components.push({ type: "header", parameters });
   }
 
-  const bodyIndices = variableIndices(t.body);
-  if (bodyIndices.length > 0) {
+  if (kind === "lto") {
+    const hours = extra.expiresInHours ?? 48;
     components.push({
-      type: "body",
-      parameters: bodyIndices.map((i) => ({ type: "text", text: values[i - 1] ?? "" })),
+      type: "limited_time_offer",
+      parameters: [
+        { type: "limited_time_offer", limited_time_offer: { expiration_time_ms: Date.now() + hours * 60 * 60 * 1000 } },
+      ],
     });
   }
 
-  const previewText = bodyIndices.reduce(
-    (text, i) => text.split(`{{${i}}}`).join(values[i - 1] ?? ""),
-    t.body
-  );
+  const bodyParameters = textParameters(t.body);
+  if (bodyParameters.length > 0) components.push({ type: "body", parameters: bodyParameters });
+
+  // The copy-code button is always the first button (see buildTemplateComponents).
+  if ((kind === "coupon" || kind === "lto") && extra.couponCode) {
+    components.push({
+      type: "button",
+      sub_type: "copy_code",
+      index: "0",
+      parameters: [{ type: "coupon_code", coupon_code: extra.couponCode }],
+    });
+  }
+
+  if (kind === "carousel") {
+    components.push({
+      type: "carousel",
+      cards: (extra.cards ?? []).map((card, cardIndex) => ({
+        card_index: cardIndex,
+        components: [
+          {
+            type: "header",
+            parameters: [{ type: card.mediaKind, [card.mediaKind]: { link: absolute(card.mediaUrl) } }],
+          },
+          ...card.buttons.flatMap((b, buttonIndex) =>
+            b.kind === "quick_reply"
+              ? [
+                  {
+                    type: "button",
+                    sub_type: "quick_reply",
+                    index: String(buttonIndex),
+                    parameters: [{ type: "payload", payload: b.label }],
+                  },
+                ]
+              : []
+          ),
+        ],
+      })),
+    });
+  }
+
+  const previewText = fillParams(t.body, values, named ? "named" : "positional", names);
 
   return {
     payload: {

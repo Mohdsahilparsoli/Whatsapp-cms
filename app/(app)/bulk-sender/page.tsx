@@ -10,7 +10,7 @@ import FormField, { SelectField } from "@/components/ui/FormField";
 import Modal from "@/components/ui/Modal";
 import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
-import TemplatePreview from "@/components/templates/TemplatePreview";
+import TemplatePreview, { previewKindProps } from "@/components/templates/TemplatePreview";
 import { useCustomTemplates } from "@/lib/customTemplates";
 import { getPageMeta } from "@/lib/nav";
 import { cn, formatNumber } from "@/lib/utils";
@@ -238,7 +238,7 @@ export default function BulkSenderPage() {
                         ) : (
                           <FormField
                             key={`${template.id}-${index}`}
-                            label={`{{${index + 1}}} — ${variable || `Value ${index + 1}`}`}
+                            label={`${template.parameterFormat === "named" ? `{{${variable}}}` : `{{${index + 1}}}`} — ${variable || `Value ${index + 1}`}`}
                             value={variables[index] ?? ""}
                             onChange={(value) =>
                               setVariables((prev) => {
@@ -271,6 +271,7 @@ export default function BulkSenderPage() {
                   footer={template.footer}
                   media={template.media}
                   buttons={template.buttons}
+                  {...previewKindProps(template)}
                   values={previewValues}
                   emptyHint="This template has no message body."
                 />
@@ -334,6 +335,7 @@ export default function BulkSenderPage() {
               footer={template.footer}
               media={template.media}
               buttons={template.buttons}
+                  {...previewKindProps(template)}
               values={previewValues}
             />
 

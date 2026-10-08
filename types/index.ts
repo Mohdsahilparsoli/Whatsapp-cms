@@ -293,6 +293,27 @@ export interface TemplateButton {
   url: string;
 }
 
+export type TemplateKind = "standard" | "coupon" | "lto" | "carousel" | "authentication";
+
+export interface CarouselCard {
+  mediaKind: "image" | "video";
+  mediaUrl: string;
+  mediaFileName?: string;
+  body: string;
+  /** url (static link) or quick_reply buttons, same set on every card. */
+  buttons: { kind: "url" | "quick_reply"; label: string; url: string }[];
+}
+
+/** Kind-specific settings — see schema.prisma's CustomTemplate.extra. */
+export interface TemplateExtra {
+  couponCode?: string;
+  offerText?: string;
+  expiresInHours?: number;
+  cards?: CarouselCard[];
+  expiryMinutes?: number;
+  securityRecommendation?: boolean;
+}
+
 export interface TemplateMedia {
   kind: TemplateMediaKind;
   url: string;
@@ -313,8 +334,14 @@ export interface CustomTemplate {
   footer?: string;
   media: TemplateMedia;
   buttons: TemplateButton[];
-  /** Friendly labels for {{1}}, {{2}}, {{3}} … */
+  /** Friendly labels for {{1}}, {{2}}, {{3}} … (the parameter NAMES for a
+   * "named" template). */
   variables: string[];
+  /** "positional" ({{1}}) or "named" ({{first_name}}) placeholders. */
+  parameterFormat: "positional" | "named";
+  /** standard | coupon | lto | carousel | authentication — see CustomTemplate.extra. */
+  templateKind: TemplateKind;
+  extra: TemplateExtra;
   /** Real Meta submission tracking — see lib/metaTemplates.ts. "not_submitted"
    * until "Submit for Meta approval" is used from the Templates page. */
   metaStatus: MetaTemplateStatus;
@@ -340,6 +367,9 @@ export interface TemplateView {
   media: TemplateMedia;
   buttons: TemplateButton[];
   variables: string[];
+  parameterFormat?: "positional" | "named";
+  templateKind?: TemplateKind;
+  extra?: TemplateExtra;
   /** Only meaningful for source: "custom" — see CustomTemplate. */
   metaStatus?: MetaTemplateStatus;
   metaRejectionReason?: string | null;

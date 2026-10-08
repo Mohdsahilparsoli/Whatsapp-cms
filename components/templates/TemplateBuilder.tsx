@@ -9,7 +9,7 @@ import InlineAlert from "@/components/ui/InlineAlert";
 import FormField, { SelectField, TextareaField } from "@/components/ui/FormField";
 import TemplatePreview from "./TemplatePreview";
 import { emptyDraft, type CustomTemplateDraft, type SaveTemplateResult } from "@/lib/customTemplates";
-import type { CustomTemplate, TemplateButtonKind } from "@/types";
+import type { CarouselCard, CustomTemplate, TemplateButtonKind, TemplateKind } from "@/types";
 
 const MAX_BUTTONS = 3;
 const MAX_VARIABLES = 10;
@@ -22,6 +22,14 @@ const MAX_FILE_BYTES: Record<string, number> = {
   video: 16 * 1024 * 1024,
   document: 10 * 1024 * 1024,
 };
+
+const kindOptions: { label: string; value: TemplateKind }[] = [
+  { label: "Standard message", value: "standard" },
+  { label: "Coupon code (copy-code button)", value: "coupon" },
+  { label: "Limited-time offer", value: "lto" },
+  { label: "Carousel (swipeable cards)", value: "carousel" },
+  { label: "Authentication / OTP", value: "authentication" },
+];
 
 const categories = [
   { label: "Marketing", value: "Marketing" },
@@ -82,7 +90,7 @@ const buttonMeta: Record<
  */
 const WA_BASE_URL = "https://wa.me/";
 
-type Errors = Partial<Record<"name" | "body" | "media" | "buttons" | "header" | "footer", string>>;
+type Errors = Partial<Record<"name" | "body" | "media" | "buttons" | "header" | "footer" | "extra", string>>;
 
 /**
  * Meta's real hard limit for an interactive message's header/footer text
@@ -104,6 +112,13 @@ function removeVariableFromBody(body: string, index: number) {
     });
 }
 
+/** var_1, var_2 … — the first one not already used. */
+function uniqueName(existing: string[]): string {
+  let n = existing.length + 1;
+  while (existing.includes(`var_${n}`)) n += 1;
+  return `var_${n}`;
+}
+
 function draftFromTemplate(template: CustomTemplate): CustomTemplateDraft {
   return {
     name: template.name,
@@ -116,6 +131,9 @@ function draftFromTemplate(template: CustomTemplate): CustomTemplateDraft {
     media: template.media,
     buttons: template.buttons,
     variables: template.variables,
+    parameterFormat: template.parameterFormat,
+    templateKind: template.templateKind,
+    extra: template.extra,
   };
 }
 
@@ -166,19 +184,95 @@ export default function TemplateBuilder({
     [draft.variables]
   );
 
+  const named = draft.parameterFormat === "named";
+
   function addVariable() {
     if (draft.variables.length >= MAX_VARIABLES) return;
-    const next = draft.variables.length + 1;
+    const token = named ? uniqueName(draft.variables) : String(draft.variables.length + 1);
     patch({
-      variables: [...draft.variables, ""],
-      body: `${draft.body}${draft.body.endsWith(" ") || !draft.body ? "" : " "}{{${next}}}`,
+      variables: [...draft.variables, named ? token : ""],
+      body: `${draft.body}${draft.body.endsWith(" ") || !draft.body ? "" : " "}{{${token}}}`,
     });
   }
 
   function removeVariable(index: number) {
+    if (named) {
+      const token = draft.variables[index];
+      patch({
+        variables: draft.variables.filter((_, i) => i !== index),
+        body: draft.body.replace(new RegExp(`\\s*\\{\\{${token}\\}\\}`, "g"), ""),
+        header: (draft.header ?? "").replace(new RegExp(`\\s*\\{\\{${token}\\}\\}`, "g"), ""),
+      });
+      return;
+    }
     patch({
       variables: draft.variables.filter((_, i) => i !== index),
       body: removeVariableFromBody(draft.body, index),
+    });
+  }
+
+  /** Named templates: renaming a variable rewrites its {{placeholder}} everywhere. */
+  function renameVariable(index: number, rawName: string) {
+    const nextName = rawName.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    const prevName = draft.variables[index];
+    const swap = (text: string) => text.split(`{{${prevName}}}`).join(`{{${nextName}}}`);
+    patch({
+      variables: draft.variables.map((item, i) => (i === index ? nextName : item)),
+      body: swap(draft.body),
+      header: swap(draft.header ?? ""),
+    });
+  }
+
+  // ---- carousel cards ----
+  const cards = draft.extra.cards ?? [];
+  const setCards = (next: CarouselCard[]) => patch({ extra: { ...draft.extra, cards: next } });
+  const carouselMediaKind = cards[0]?.mediaKind ?? "image";
+
+  function addCard() {
+    if (cards.length >= 10) return;
+    const template = cards[0];
+    setCards([
+      ...cards,
+      {
+        mediaKind: carouselMediaKind,
+        mediaUrl: "",
+        body: "",
+        buttons: (template?.buttons ?? []).map((b) => ({ ...b, url: b.kind === "url" ? "" : b.url })),
+      },
+    ]);
+  }
+
+  function updateCard(index: number, changes: Partial<CarouselCard>) {
+    setCards(cards.map((c, i) => (i === index ? { ...c, ...changes } : c)));
+  }
+
+  function setKind(kind: TemplateKind) {
+    setUploadError(null);
+    if (kind === "carousel" && cards.length === 0) {
+      patch({
+        templateKind: kind,
+        media: { kind: "none", url: "" },
+        buttons: [],
+        extra: {
+          cards: [0, 1].map(() => ({ mediaKind: "image" as const, mediaUrl: "", body: "", buttons: [] })),
+        },
+      });
+      return;
+    }
+    patch({
+      templateKind: kind,
+      ...(kind === "authentication" ? { category: "Authentication" as const } : {}),
+      ...(kind !== "authentication" && draft.category === "Authentication" ? { category: "Marketing" as const } : {}),
+      extra:
+        kind === "coupon"
+          ? { couponCode: draft.extra.couponCode ?? "" }
+          : kind === "lto"
+            ? { offerText: draft.extra.offerText ?? "", expiresInHours: draft.extra.expiresInHours ?? 48, couponCode: draft.extra.couponCode }
+            : kind === "authentication"
+              ? { expiryMinutes: draft.extra.expiryMinutes ?? 10, securityRecommendation: draft.extra.securityRecommendation !== false }
+              : kind === "carousel"
+                ? draft.extra
+                : {},
     });
   }
 
@@ -202,6 +296,39 @@ export default function TemplateBuilder({
         },
       ],
     });
+  }
+
+  /** Direct browser → Vercel Blob upload; returns the public URL. */
+  async function uploadToBlob(file: File, kind: string): Promise<string> {
+    const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
+    const pathname = `templates/${crypto.randomUUID()}${ext}`;
+    const blob = await upload(pathname, file, {
+      access: "public",
+      handleUploadUrl: "/api/templates/media/client-upload",
+      clientPayload: kind,
+      contentType: file.type || undefined,
+    });
+    return blob.url;
+  }
+
+  async function handleCardFile(index: number, file: File | undefined) {
+    setUploadError(null);
+    if (!file) return;
+    const kind = cards[index]?.mediaKind ?? "image";
+    const maxBytes = MAX_FILE_BYTES[kind];
+    if (file.size > maxBytes) {
+      setUploadError(`That file is larger than ${Math.round(maxBytes / (1024 * 1024))}MB.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const url = await uploadToBlob(file, kind);
+      updateCard(index, { mediaUrl: url, mediaFileName: file.name });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Could not upload the card media.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function handleFileSelected(file: File | undefined) {
@@ -249,7 +376,32 @@ export default function TemplateBuilder({
 
     if (asDraft) return next;
 
+    if (draft.templateKind === "authentication") return next;
+
     if (!draft.body.trim()) next.body = "Write the message body.";
+    if (draft.templateKind === "coupon" && !(draft.extra.couponCode ?? "").trim()) {
+      next.extra = "Enter the coupon code customers will copy.";
+    }
+    if (draft.templateKind === "lto") {
+      const offer = (draft.extra.offerText ?? "").trim();
+      if (!offer || offer.length > 16) next.extra = "Enter the offer text (1–16 characters), e.g. “Summer Sale”.";
+      else if (draft.media.kind !== "image" && draft.media.kind !== "video") {
+        next.media = "A limited-time-offer template needs an image or video header.";
+      } else if (!(draft.extra.couponCode ?? "").trim() && !draft.buttons.some((b) => b.kind === "url")) {
+        next.extra = "Add a coupon code or a URL button — Meta requires one for limited-time offers.";
+      }
+    }
+    if (draft.templateKind === "carousel") {
+      if (cards.length < 2) next.extra = "A carousel needs at least 2 cards.";
+      else if (cards.some((c) => !c.mediaUrl || !c.body.trim())) next.extra = "Every card needs media and text.";
+      else if (cards.some((c) => /\{\{/.test(c.body))) next.extra = "Card text can't contain {{variables}}.";
+      else if (cards.some((c) => c.buttons.some((b) => !b.label.trim() || (b.kind === "url" && !/^https?:\/\/.+/.test(b.url.trim())))))
+        next.extra = "Every card button needs a label, and URL buttons need a full link (https://…).";
+    }
+    if (named) {
+      const bad = draft.variables.find((v) => !/^[a-z][a-z0-9_]*$/.test(v));
+      if (bad !== undefined) next.body = "Every named variable needs a name: lowercase letters, numbers and underscores, starting with a letter.";
+    }
     if (draft.media.kind !== "none" && !draft.media.url.trim())
       next.media = "Upload a file for the attached media.";
 
@@ -345,19 +497,28 @@ export default function TemplateBuilder({
               hint="Lowercase letters, numbers, and underscores."
             />
             <SelectField
-              label="Template category"
-              value={draft.category}
-              onChange={(value) =>
-                patch({ category: value as CustomTemplateDraft["category"] })
-              }
-              options={categories}
+              label="Template type"
+              value={draft.templateKind}
+              onChange={(value) => setKind(value as TemplateKind)}
+              options={kindOptions}
             />
+            {draft.templateKind !== "authentication" && (
+              <SelectField
+                label="Template category"
+                value={draft.category}
+                onChange={(value) =>
+                  patch({ category: value as CustomTemplateDraft["category"] })
+                }
+                options={categories.filter((c) => c.value !== "Authentication")}
+              />
+            )}
             <SelectField
               label="Template language"
               value={draft.language}
               onChange={(value) => patch({ language: value })}
               options={languages}
             />
+            {draft.templateKind !== "carousel" && draft.templateKind !== "authentication" && (
             <SelectField
               label="Media"
               value={draft.media.kind}
@@ -370,11 +531,79 @@ export default function TemplateBuilder({
                       : { kind: value as CustomTemplateDraft["media"]["kind"], url: "" },
                 });
               }}
-              options={mediaOptions}
+              options={draft.templateKind === "lto" ? mediaOptions.filter((o) => o.value === "image" || o.value === "video") : mediaOptions}
             />
+            )}
           </div>
 
-          {draft.media.kind !== "none" && (
+          {draft.templateKind === "coupon" && (
+            <FormField
+              label="Coupon code"
+              required
+              value={draft.extra.couponCode ?? ""}
+              onChange={(value) => patch({ extra: { ...draft.extra, couponCode: value.toUpperCase() } })}
+              error={errors.extra}
+              placeholder="SAVE20"
+              hint="Customers see a Copy code button that copies this."
+            />
+          )}
+
+          {draft.templateKind === "lto" && (
+            <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-3">
+              <FormField
+                label="Offer text"
+                required
+                value={draft.extra.offerText ?? ""}
+                onChange={(value) => patch({ extra: { ...draft.extra, offerText: value.slice(0, 16) } })}
+                placeholder="Summer Sale"
+                hint={`${(draft.extra.offerText ?? "").length}/16`}
+              />
+              <FormField
+                label="Offer lasts (hours)"
+                value={String(draft.extra.expiresInHours ?? 48)}
+                onChange={(value) => patch({ extra: { ...draft.extra, expiresInHours: Number(value.replace(/\D/g, "")) || 48 } })}
+                hint="Countdown starts when the message is sent."
+              />
+              <FormField
+                label="Coupon code (optional)"
+                value={draft.extra.couponCode ?? ""}
+                onChange={(value) => patch({ extra: { ...draft.extra, couponCode: value.toUpperCase() || undefined } })}
+                placeholder="SAVE20"
+              />
+              {errors.extra && <p role="alert" className="text-xs text-red-600 sm:col-span-3">{errors.extra}</p>}
+              <p className="text-xs text-slate-500 sm:col-span-3">
+                Needs an image or video header (choose it in Media above) and a coupon code or a URL button.
+              </p>
+            </div>
+          )}
+
+          {draft.templateKind === "authentication" && (
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-sm text-slate-700">
+                Meta writes the message itself (“<code>123456</code> is your verification code.”) and adds a Copy code
+                button. Send these through the OTP API (API keys page) — not from campaigns.
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <FormField
+                  label="Code expires after (minutes)"
+                  value={String(draft.extra.expiryMinutes ?? 10)}
+                  onChange={(value) => patch({ extra: { ...draft.extra, expiryMinutes: Math.min(Number(value.replace(/\D/g, "")) || 10, 90) } })}
+                  hint="1–90 minutes."
+                />
+                <label className="flex items-center gap-2 pt-6 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={draft.extra.securityRecommendation !== false}
+                    onChange={(e) => patch({ extra: { ...draft.extra, securityRecommendation: e.target.checked } })}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                  />
+                  Add “Do not share this code” line
+                </label>
+              </div>
+            </div>
+          )}
+
+          {draft.templateKind !== "carousel" && draft.templateKind !== "authentication" && draft.media.kind !== "none" && (
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="text-xs font-medium text-slate-600">
                 {draft.media.kind === "image" && "Image — jpg, png, webp, or gif, up to 10MB"}
@@ -430,6 +659,7 @@ export default function TemplateBuilder({
             </div>
           )}
 
+          {draft.templateKind !== "authentication" && draft.templateKind !== "carousel" && (
           <FormField
             label="Header text"
             value={draft.header ?? ""}
@@ -438,17 +668,21 @@ export default function TemplateBuilder({
             error={errors.header}
             hint={`${(draft.header ?? "").length}/${HEADER_FOOTER_MAX} — only enforced once this template has a button`}
           />
+          )}
 
+          {draft.templateKind !== "authentication" && (
           <TextareaField
             label="Message body"
             value={draft.body}
             onChange={(value) => patch({ body: value })}
             rows={5}
             error={errors.body}
-            placeholder="Hi {{1}}, our festive sale starts on {{2}}."
-            hint="Use {{1}}, {{2}}, {{3}} for values filled in per contact."
+            placeholder={named ? "Hi {{first_name}}, our festive sale starts on {{sale_date}}." : "Hi {{1}}, our festive sale starts on {{2}}."}
+            hint={named ? "Use {{name}}-style variables, e.g. {{first_name}}." : "Use {{1}}, {{2}}, {{3}} for values filled in per contact."}
           />
+          )}
 
+          {draft.templateKind !== "authentication" && draft.templateKind !== "carousel" && (
           <FormField
             label="Footer text"
             value={draft.footer ?? ""}
@@ -457,13 +691,150 @@ export default function TemplateBuilder({
             error={errors.footer}
             hint={`${(draft.footer ?? "").length}/${HEADER_FOOTER_MAX} — only enforced once this template has a button`}
           />
+          )}
+
+          {/* Carousel cards */}
+          {draft.templateKind === "carousel" && (
+            <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-700">Cards ({cards.length}/10)</p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={carouselMediaKind}
+                    onChange={(e) =>
+                      setCards(cards.map((c) => ({ ...c, mediaKind: e.target.value as "image" | "video", mediaUrl: "" })))
+                    }
+                    className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs"
+                    aria-label="Card media type"
+                  >
+                    <option value="image">Image cards</option>
+                    <option value="video">Video cards</option>
+                  </select>
+                  <Button size="sm" onClick={addCard} disabled={cards.length >= 10}>
+                    <Plus className="h-3.5 w-3.5" /> Add card
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      setCards(
+                        cards.map((c) =>
+                          c.buttons.length >= 2 ? c : { ...c, buttons: [...c.buttons, { kind: "url" as const, label: "", url: "" }] }
+                        )
+                      )
+                    }
+                    disabled={(cards[0]?.buttons.length ?? 0) >= 2}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Button on every card
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">
+                All cards must use the same media type and the same number of buttons. Card text can&apos;t contain variables.
+              </p>
+              <ul className="space-y-3">
+                {cards.map((card, index) => (
+                  <li key={index} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-slate-500">Card {index + 1}</p>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        aria-label={`Remove card ${index + 1}`}
+                        onClick={() => setCards(cards.filter((_, i) => i !== index))}
+                        disabled={cards.length <= 2}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="mt-2 flex items-center gap-3">
+                      {card.mediaUrl ? (
+                        <span className="min-w-0 flex-1 truncate text-xs text-slate-600">{card.mediaFileName || "Uploaded"}</span>
+                      ) : (
+                        <span className="flex-1 text-xs text-slate-400">No {card.mediaKind} yet</span>
+                      )}
+                      <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                        {uploading ? "Uploading…" : card.mediaUrl ? "Replace" : "Upload"}
+                        <input
+                          type="file"
+                          accept={mediaAccept[card.mediaKind]}
+                          className="hidden"
+                          onChange={(e) => {
+                            handleCardFile(index, e.target.files?.[0]);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <TextareaField
+                      label="Card text"
+                      rows={2}
+                      value={card.body}
+                      onChange={(value) => updateCard(index, { body: value })}
+                      className="mt-2"
+                    />
+                    {card.buttons.map((b, bi) => (
+                      <div key={bi} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr_1fr]">
+                        <select
+                          value={b.kind}
+                          onChange={(e) =>
+                            setCards(
+                              cards.map((c) => ({
+                                ...c,
+                                buttons: c.buttons.map((x, xi) => (xi === bi ? { ...x, kind: e.target.value as "url" | "quick_reply" } : x)),
+                              }))
+                            )
+                          }
+                          className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs"
+                        >
+                          <option value="url">URL</option>
+                          <option value="quick_reply">Quick reply</option>
+                        </select>
+                        <input
+                          value={b.label}
+                          onChange={(e) =>
+                            updateCard(index, { buttons: card.buttons.map((x, xi) => (xi === bi ? { ...x, label: e.target.value } : x)) })
+                          }
+                          placeholder="Button label"
+                          className="h-9 rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
+                        />
+                        {b.kind === "url" && (
+                          <input
+                            value={b.url}
+                            onChange={(e) =>
+                              updateCard(index, { buttons: card.buttons.map((x, xi) => (xi === bi ? { ...x, url: e.target.value } : x)) })
+                            }
+                            placeholder="https://…"
+                            className="h-9 rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+              {(errors.extra || uploadError) && (
+                <p role="alert" className="text-xs text-red-600">{errors.extra || uploadError}</p>
+              )}
+            </div>
+          )}
 
           {/* Variables */}
+          {draft.templateKind !== "authentication" && (
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium text-slate-700">
                 Message variables
               </p>
+              <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={named}
+                  disabled={draft.variables.length > 0}
+                  onChange={(e) => patch({ parameterFormat: e.target.checked ? "named" : "positional" })}
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600"
+                />
+                Named variables {"{{first_name}}"}
+              </label>
               <Button
                 size="sm"
                 onClick={addVariable}
@@ -482,20 +853,23 @@ export default function TemplateBuilder({
                 {draft.variables.map((label, index) => (
                   <li key={index} className="flex items-end gap-2">
                     <span className="mb-2 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
-                      {`{{${index + 1}}}`}
+                      {named ? `{{${label}}}` : `{{${index + 1}}}`}
                     </span>
                     <FormField
-                      label={`Variable ${index + 1} label`}
+                      label={named ? `Variable ${index + 1} name` : `Variable ${index + 1} label`}
                       className="flex-1"
                       value={label}
                       onChange={(value) =>
-                        patch({
-                          variables: draft.variables.map((item, i) =>
-                            i === index ? value : item
-                          ),
-                        })
+                        named
+                          ? renameVariable(index, value)
+                          : patch({
+                              variables: draft.variables.map((item, i) =>
+                                i === index ? value : item
+                              ),
+                            })
                       }
-                      placeholder="Customer name"
+                      placeholder={named ? "first_name" : "Customer name"}
+                      hint={named && index === 0 ? "The first variable is filled with each contact's name." : undefined}
                     />
                     <Button
                       size="sm"
@@ -511,8 +885,10 @@ export default function TemplateBuilder({
               </ul>
             )}
           </div>
+          )}
 
           {/* Buttons */}
+          {draft.templateKind !== "carousel" && draft.templateKind !== "authentication" && (
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium text-slate-700">Buttons</p>
@@ -640,6 +1016,7 @@ export default function TemplateBuilder({
               </p>
             )}
           </div>
+          )}
         </div>
 
         {/* Live preview */}
@@ -648,11 +1025,22 @@ export default function TemplateBuilder({
             <p className="mb-2 text-sm font-medium text-slate-700">Preview</p>
             <TemplatePreview
               header={draft.header}
-              body={draft.body}
-              footer={draft.footer}
+              body={draft.templateKind === "authentication" ? "123456 is your verification code. For your security, do not share this code." : draft.body}
+              footer={draft.templateKind === "authentication" ? `This code expires in ${draft.extra.expiryMinutes ?? 10} minutes.` : draft.footer}
               media={draft.media}
-              buttons={draft.buttons}
+              buttons={draft.templateKind === "carousel" || draft.templateKind === "authentication" ? [] : draft.buttons}
               values={previewValues}
+              format={draft.parameterFormat}
+              names={draft.variables}
+              extraButtons={
+                draft.templateKind === "authentication"
+                  ? ["Copy code"]
+                  : (draft.templateKind === "coupon" || draft.templateKind === "lto") && draft.extra.couponCode
+                    ? [`Copy code: ${draft.extra.couponCode}`]
+                    : []
+              }
+              offerText={draft.templateKind === "lto" ? draft.extra.offerText : undefined}
+              cards={draft.templateKind === "carousel" ? cards : []}
             />
             <InlineAlert tone="info" className="mt-3">
               Variables are shown with their labels here. Real values are filled in

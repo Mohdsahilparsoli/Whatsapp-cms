@@ -1,3 +1,6 @@
+import { NAMED_PARAM_PATTERN, extractParams } from "@/lib/templateParams";
+import type { TemplateExtra, TemplateKind } from "@/types";
+
 export const CATEGORIES = ["Marketing", "Utility", "Authentication"] as const;
 export const MEDIA_KINDS = ["none", "image", "video", "document"] as const;
 export const BUTTON_KINDS = ["url", "call", "whatsapp", "quick_reply"] as const;
@@ -33,7 +36,12 @@ export interface TemplateInputBody {
   media?: MediaInput;
   buttons?: ButtonInput[];
   variables?: string[];
+  parameterFormat?: "positional" | "named";
+  templateKind?: TemplateKind;
+  extra?: TemplateExtra;
 }
+
+export const TEMPLATE_KINDS = ["standard", "coupon", "lto", "carousel", "authentication"] as const;
 
 export interface NormalizedTemplate {
   name: string;
@@ -48,13 +56,25 @@ export interface NormalizedTemplate {
   mediaFileName: string | null;
   buttons: { id: string; kind: ButtonKind; label: string; url: string }[];
   variables: string[];
+  parameterFormat: "positional" | "named";
+  templateKind: TemplateKind;
+  extra: TemplateExtra;
 }
 
 /** Normalizes raw request body into typed, trimmed fields (no validation yet). */
 export function normalizeTemplateInput(body: TemplateInputBody): NormalizedTemplate {
   const name = body.name?.trim() ?? "";
   const isDraft = body.status === "draft";
-  const category: Category = body.category && CATEGORIES.includes(body.category) ? body.category : "Marketing";
+  const templateKind: TemplateKind =
+    body.templateKind && TEMPLATE_KINDS.includes(body.templateKind) ? body.templateKind : "standard";
+  const parameterFormat = body.parameterFormat === "named" ? "named" : "positional";
+  const category: Category =
+    templateKind === "authentication"
+      ? "Authentication"
+      : body.category && CATEGORIES.includes(body.category)
+        ? body.category
+        : "Marketing";
+  const extra = normalizeExtra(templateKind, body.extra);
   const language = body.language?.trim() || "English";
   const header = body.header?.trim() || null;
   const bodyText = body.body?.trim() ?? "";
@@ -90,7 +110,43 @@ export function normalizeTemplateInput(body: TemplateInputBody): NormalizedTempl
     mediaFileName,
     buttons,
     variables,
+    parameterFormat,
+    templateKind,
+    extra,
   };
+}
+
+function normalizeExtra(kind: TemplateKind, raw: TemplateExtra | undefined): TemplateExtra {
+  const e = raw ?? {};
+  if (kind === "coupon") return { couponCode: e.couponCode?.trim() ?? "" };
+  if (kind === "lto") {
+    return {
+      offerText: e.offerText?.trim() ?? "",
+      expiresInHours: Math.min(Math.max(Math.round(Number(e.expiresInHours) || 48), 1), 24 * 30),
+      couponCode: e.couponCode?.trim() || undefined,
+    };
+  }
+  if (kind === "authentication") {
+    return {
+      expiryMinutes: Math.min(Math.max(Math.round(Number(e.expiryMinutes) || 10), 1), 90),
+      securityRecommendation: e.securityRecommendation !== false,
+    };
+  }
+  if (kind === "carousel") {
+    const cards = (Array.isArray(e.cards) ? e.cards : []).slice(0, 10).map((c) => ({
+      mediaKind: (c.mediaKind === "video" ? "video" : "image") as "image" | "video",
+      mediaUrl: c.mediaUrl?.trim() ?? "",
+      mediaFileName: c.mediaFileName?.trim() || undefined,
+      body: c.body?.trim() ?? "",
+      buttons: (Array.isArray(c.buttons) ? c.buttons : []).slice(0, 2).map((b) => ({
+        kind: (b.kind === "quick_reply" ? "quick_reply" : "url") as "url" | "quick_reply",
+        label: b.label?.trim() ?? "",
+        url: b.url?.trim() ?? "",
+      })),
+    }));
+    return { cards };
+  }
+  return {};
 }
 
 /** Field-level validation for a normalized template (name uniqueness is
@@ -105,7 +161,35 @@ export function validateTemplateFields(t: NormalizedTemplate): Record<string, st
   // Drafts only need a valid, unique name — everything else can be
   // half-finished. "custom" (published) needs the rest to actually be usable.
   if (!t.isDraft) {
+    if (t.templateKind === "authentication") {
+      // Meta writes the body itself ("<code> is your verification code…").
+      return errors;
+    }
     if (!t.body) errors.body = "Write the message body.";
+
+    if (t.parameterFormat === "named") {
+      const bad = extractParams(`${t.header ?? ""} ${t.body}`).find((p) => !NAMED_PARAM_PATTERN.test(p));
+      if (bad) errors.body = `Named variables must be lowercase letters, numbers and underscores, starting with a letter ("${bad}" isn't).`;
+    }
+
+    if (t.templateKind === "coupon" && !t.extra.couponCode) {
+      errors.extra = "Enter the coupon code customers will copy.";
+    }
+    if (t.templateKind === "lto") {
+      if (!t.extra.offerText) errors.extra = "Enter the offer text (up to 16 characters), e.g. “Summer Sale”.";
+      else if (t.extra.offerText.length > 16) errors.extra = "Offer text can be at most 16 characters.";
+      else if (t.mediaKind !== "image" && t.mediaKind !== "video") errors.media = "A limited-time-offer template needs an image or video header.";
+    }
+    if (t.templateKind === "carousel") {
+      const cards = t.extra.cards ?? [];
+      if (cards.length < 2) errors.extra = "A carousel needs at least 2 cards.";
+      else if (cards.some((c) => !c.mediaUrl || !c.body)) errors.extra = "Every card needs an image/video and a text.";
+      else if (cards.some((c) => c.mediaKind !== cards[0].mediaKind)) errors.extra = "All cards must use the same media type.";
+      else if (cards.some((c) => c.buttons.length !== cards[0].buttons.length)) errors.extra = "All cards must have the same number of buttons.";
+      else if (cards.some((c) => c.buttons.some((b) => !b.label || (b.kind === "url" && !/^https?:\/\/.+/.test(b.url))))) {
+        errors.extra = "Every card button needs a label, and URL buttons need a full link (https://…).";
+      }
+    }
 
     if (t.mediaKind !== "none" && !t.mediaUrl) {
       errors.media = "Upload a file for the attached media.";

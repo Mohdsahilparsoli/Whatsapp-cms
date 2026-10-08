@@ -13,7 +13,7 @@ import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import EmptyState from "@/components/ui/EmptyState";
 import InlineAlert from "@/components/ui/InlineAlert";
-import TemplatePreview from "@/components/templates/TemplatePreview";
+import TemplatePreview, { previewKindProps } from "@/components/templates/TemplatePreview";
 import TemplateBuilder from "@/components/templates/TemplateBuilder";
 import { useCustomTemplates } from "@/lib/customTemplates";
 import { getPageMeta } from "@/lib/nav";
@@ -350,6 +350,7 @@ export default function TemplatesPage() {
               footer={preview.footer}
               media={preview.media}
               buttons={preview.buttons}
+                  {...previewKindProps(preview)}
               values={preview.variables}
             />
 
@@ -367,7 +368,7 @@ export default function TemplatesPage() {
                       className="flex items-center gap-2 text-sm"
                     >
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
-                        {`{{${index + 1}}}`}
+                        {preview.parameterFormat === "named" ? `{{${variable}}}` : `{{${index + 1}}}`}
                       </span>
                       <span className="text-slate-700">
                         {variable || `Value ${index + 1}`}

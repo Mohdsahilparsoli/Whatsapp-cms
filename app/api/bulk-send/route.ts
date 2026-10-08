@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireClient } from "@/lib/apiGuards";
 import { fillTemplate } from "@/lib/utils";
+import { advancedTemplateBlock } from "@/lib/templateKinds";
 import { enqueueAndProcess, buildPayloadForContact } from "@/lib/queueProcessor";
 import { buildOutboundMessage, type TemplateLike } from "@/lib/whatsappMessage";
 import { personalizeVariables } from "@/lib/personalize";
@@ -54,6 +55,8 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+  const kindBlock = advancedTemplateBlock(template);
+  if (kindBlock) return NextResponse.json({ error: kindBlock }, { status: 400 });
 
   // Only real, opted-in contacts belonging to this client — never someone
   // else's, and never a contact who opted out, regardless of what the
@@ -63,6 +66,7 @@ export async function POST(request: Request) {
   });
 
   const origin = new URL(request.url).origin;
+  const fmt = template.parameterFormat === "named" ? "named" : "positional";
 
   // {{1}} always auto-fills with each contact's own name (see
   // lib/personalize.ts) — "there" here is just for the stored preview
@@ -70,9 +74,9 @@ export async function POST(request: Request) {
   // contact below (buildPayloadForContact), not this one shared copy.
   const { preview } = buildOutboundMessage(
     {
-      header: template.header ? fillTemplate(template.header, personalizeVariables(variables, {})) : null,
-      body: fillTemplate(template.body, personalizeVariables(variables, {})),
-      footer: template.footer ? fillTemplate(template.footer, personalizeVariables(variables, {})) : null,
+      header: template.header ? fillTemplate(template.header, personalizeVariables(variables, {}), fmt, template.variables) : null,
+      body: fillTemplate(template.body, personalizeVariables(variables, {}), fmt, template.variables),
+      footer: template.footer ? fillTemplate(template.footer, personalizeVariables(variables, {}), fmt, template.variables) : null,
       mediaKind: template.mediaKind,
       mediaUrl: template.mediaUrl,
       buttons: template.buttons,
