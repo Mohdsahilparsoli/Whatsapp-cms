@@ -37,13 +37,15 @@ interface IncomingMessage {
   id: string;
   from: string; // sender's phone number, no "+"
   timestamp?: string;
-  type: "text" | "image" | "document" | "video" | "audio" | "button" | "interactive" | string;
+  type: "text" | "image" | "document" | "video" | "audio" | "location" | "button" | "interactive" | string;
   text?: { body: string };
   image?: { id: string; caption?: string };
   document?: { id: string; caption?: string; filename?: string };
   video?: { id: string; caption?: string };
   /** Voice note (voice: true) or an audio file the customer sent. */
   audio?: { id: string; voice?: boolean };
+  /** A pin the customer shared from WhatsApp's attach → Location. */
+  location?: { latitude: number; longitude: number; name?: string; address?: string };
   /** Legacy quick-reply tap on a Meta Message Template's QUICK_REPLY button. */
   button?: { text: string; payload?: string };
   /** Current-format reply to a QUICK_REPLY (or list/interactive) button. */
@@ -248,12 +250,21 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
   const when = message.timestamp ? new Date(Number(message.timestamp) * 1000) : new Date();
 
   let text = "";
-  let type: "text" | "image" | "document" | "video" | "audio" = "text";
+  let type: "text" | "image" | "document" | "video" | "audio" | "location" = "text";
+  let location: { latitude: number; longitude: number; name: string | null; address: string | null } | null = null;
   let mediaUrl: string | null = null;
   let mediaFileName: string | null = null;
 
   if (message.type === "text") {
     text = message.text?.body ?? "";
+  } else if (message.type === "location" && message.location) {
+    type = "location";
+    location = {
+      latitude: message.location.latitude,
+      longitude: message.location.longitude,
+      name: message.location.name ?? null,
+      address: message.location.address ?? null,
+    };
   } else if (message.type === "audio") {
     type = "audio";
     if (message.audio?.id) {
@@ -345,6 +356,10 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
       text,
       mediaUrl,
       mediaFileName,
+      latitude: location?.latitude ?? null,
+      longitude: location?.longitude ?? null,
+      locationName: location?.name ?? null,
+      locationAddress: location?.address ?? null,
       whatsappMessageId: message.id,
       status: "sent",
       createdAt: when,

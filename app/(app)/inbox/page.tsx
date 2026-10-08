@@ -13,6 +13,7 @@ import {
   Info,
   ListChecks,
   Loader2,
+  MapPin,
   Maximize2,
   MoreVertical,
   Paperclip,
@@ -46,10 +47,14 @@ interface ConversationSummary {
 interface RealMessage {
   id: string;
   direction: "inbound" | "outbound";
-  type: "text" | "image" | "document" | "video" | "audio";
+  type: "text" | "image" | "document" | "video" | "audio" | "location";
   text: string;
   mediaUrl: string | null;
   mediaFileName: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  locationName: string | null;
+  locationAddress: string | null;
   whatsappMessageId: string | null;
   status: string;
   /** Which campaign/template this OUTBOUND message came from, if it was a
@@ -123,6 +128,13 @@ function InboxPageInner() {
   const [buttonTitles, setButtonTitles] = useState<string[]>(["", ""]);
   const [listLabel, setListLabel] = useState("Choose an option");
   const [listRows, setListRows] = useState<string[]>(["", ""]);
+  // Location composer.
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [locName, setLocName] = useState("");
+  const [locAddress, setLocAddress] = useState("");
+  const [locLat, setLocLat] = useState("");
+  const [locLng, setLocLng] = useState("");
+  const [locating, setLocating] = useState(false);
   // Ticks every 30s so the 24h-window countdown stays current on its own.
   const [nowTick, setNowTick] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -470,6 +482,59 @@ function InboxPageInner() {
     const t = setInterval(() => setNowTick(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
+
+  function fillCurrentLocation() {
+    if (!navigator.geolocation) {
+      setSendError("This browser can't share your location — enter the coordinates manually.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocLat(pos.coords.latitude.toFixed(6));
+        setLocLng(pos.coords.longitude.toFixed(6));
+        setLocating(false);
+      },
+      () => {
+        setSendError("Couldn't get your location — allow location access in the browser, or enter the coordinates manually.");
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10_000 }
+    );
+  }
+
+  async function sendLocation() {
+    if (!active) return;
+    setSendError(null);
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/send-location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: active.contactPhone,
+          name: active.contactName,
+          latitude: locLat,
+          longitude: locLng,
+          locationName: locName,
+          address: locAddress,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error ?? "Could not send location.");
+        return;
+      }
+      setLocationOpen(false);
+      setLocName("");
+      setLocAddress("");
+      setLocLat("");
+      setLocLng("");
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function sendInteractive() {
     const text = draft.trim();
@@ -865,9 +930,11 @@ function InboxPageInner() {
                                   ? "🎥 Video"
                                   : message.replyToType === "audio"
                                     ? "🎤 Voice message"
-                                    : message.replyToType === "document"
-                                      ? "📄 Document"
-                                      : message.replyToText || ""}
+                                    : message.replyToType === "location"
+                                      ? "📍 Location"
+                                      : message.replyToType === "document"
+                                        ? "📄 Document"
+                                        : message.replyToText || ""}
                             </p>
                           </button>
                         )}
@@ -937,6 +1004,27 @@ function InboxPageInner() {
                                 ? ` · ${message.templateName}`
                                 : ""}
                             </p>
+                          )}
+                          {message.type === "location" && message.latitude != null && message.longitude != null && (
+                            <a
+                              href={`https://www.google.com/maps?q=${message.latitude},${message.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mb-1.5 flex items-start gap-2 rounded-lg bg-white/70 px-2.5 py-2 ring-1 ring-slate-200 hover:bg-white"
+                            >
+                              <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+                              <span className="min-w-0 text-xs">
+                                <span className="block truncate font-medium text-slate-700">
+                                  {message.locationName ?? "Shared location"}
+                                </span>
+                                {message.locationAddress && (
+                                  <span className="block text-slate-500">{message.locationAddress}</span>
+                                )}
+                                <span className="block text-slate-400">
+                                  {message.latitude.toFixed(5)}, {message.longitude.toFixed(5)} · Open in Maps
+                                </span>
+                              </span>
+                            </a>
                           )}
                           {message.type === "audio" && message.mediaUrl && (
                             <audio
@@ -1066,9 +1154,11 @@ function InboxPageInner() {
                             ? "🎥 Video"
                             : replyTo.type === "audio"
                               ? "🎤 Voice message"
-                              : replyTo.type === "document"
-                                ? "📄 Document"
-                                : replyTo.text || ""}
+                              : replyTo.type === "location"
+                                ? "📍 Location"
+                                : replyTo.type === "document"
+                                  ? "📄 Document"
+                                  : replyTo.text || ""}
                       </p>
                     </div>
                     <button
@@ -1079,6 +1169,73 @@ function InboxPageInner() {
                     >
                       <X className="h-4 w-4" />
                     </button>
+                  </div>
+                )}
+
+                {locationOpen && !windowClosed && (
+                  <div className="shrink-0 space-y-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-slate-700">Send a location</p>
+                      <button
+                        type="button"
+                        aria-label="Close location composer"
+                        onClick={() => setLocationOpen(false)}
+                        className="rounded-full p-1 text-slate-400 hover:bg-slate-200"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        value={locName}
+                        onChange={(e) => setLocName(e.target.value)}
+                        aria-label="Place name"
+                        placeholder="Place name (optional)"
+                        className="col-span-2 h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                      <input
+                        value={locAddress}
+                        onChange={(e) => setLocAddress(e.target.value)}
+                        aria-label="Address"
+                        placeholder="Address (optional)"
+                        className="col-span-2 h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                      <input
+                        value={locLat}
+                        onChange={(e) => setLocLat(e.target.value)}
+                        inputMode="decimal"
+                        aria-label="Latitude"
+                        placeholder="Latitude (e.g. 28.6139)"
+                        className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                      <input
+                        value={locLng}
+                        onChange={(e) => setLocLng(e.target.value)}
+                        inputMode="decimal"
+                        aria-label="Longitude"
+                        placeholder="Longitude (e.g. 77.2090)"
+                        className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={fillCurrentLocation}
+                        disabled={locating}
+                        className="font-medium text-indigo-600 hover:underline disabled:text-slate-400 disabled:no-underline"
+                      >
+                        {locating ? "Getting your location…" : "Use my current location"}
+                      </button>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        onClick={sendLocation}
+                        disabled={sending || !locLat.trim() || !locLng.trim()}
+                      >
+                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        Send location
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -1205,10 +1362,25 @@ function InboxPageInner() {
                     type="button"
                     aria-label="Send reply buttons or a list"
                     title="Reply buttons / list menu"
-                    onClick={() => setInteractiveOpen((o) => !o)}
+                    onClick={() => {
+                      setLocationOpen(false);
+                      setInteractiveOpen((o) => !o);
+                    }}
                     disabled={active.consent === "opted_out" || windowClosed}
                   >
                     <ListChecks className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    aria-label="Send a location"
+                    title="Send a location"
+                    onClick={() => {
+                      setInteractiveOpen(false);
+                      setLocationOpen((o) => !o);
+                    }}
+                    disabled={active.consent === "opted_out" || windowClosed}
+                  >
+                    <MapPin className="h-4 w-4" />
                   </Button>
                   <input
                     value={draft}

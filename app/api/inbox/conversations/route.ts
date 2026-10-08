@@ -69,7 +69,9 @@ export async function GET() {
                   ? "🎥 Video"
                   : c.messages[0].type === "audio"
                     ? "🎤 Voice message"
-                    : "📄 Document"
+                    : c.messages[0].type === "location"
+                      ? "📍 Location"
+                      : "📄 Document"
             : "",
           consent: contact?.consent ?? null,
           tags: contact?.tags ?? [],

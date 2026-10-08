@@ -29,6 +29,10 @@ export async function GET(_request: Request, { params }: Params) {
         text: string;
         mediaUrl: string | null;
         mediaFileName: string | null;
+        latitude: number | null;
+        longitude: number | null;
+        locationName: string | null;
+        locationAddress: string | null;
         whatsappMessageId: string | null;
         status: string;
         campaignName: string | null;
@@ -45,6 +49,10 @@ export async function GET(_request: Request, { params }: Params) {
         text: m.text,
         mediaUrl: m.mediaUrl,
         mediaFileName: m.mediaFileName,
+        latitude: m.latitude,
+        longitude: m.longitude,
+        locationName: m.locationName,
+        locationAddress: m.locationAddress,
         whatsappMessageId: m.whatsappMessageId,
         status: m.status,
         campaignName: m.campaignName,

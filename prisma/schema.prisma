@@ -511,6 +511,7 @@ enum ChatMessageType {
   document
   video
   audio
+  location
 }
 
 /// One real message in a Conversation — inbound (from the customer, via
@@ -528,6 +529,12 @@ model ChatMessage {
   text      String           @default("")
   mediaUrl      String?
   mediaFileName String?
+
+  /// Only set for type = location (a pin the customer shared, or one we sent).
+  latitude        Float?
+  longitude       Float?
+  locationName    String?
+  locationAddress String?
 
   whatsappMessageId String? @unique
   status            String  @default("sent") // sent | delivered | read | failed — outbound only
