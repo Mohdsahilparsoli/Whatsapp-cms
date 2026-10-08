@@ -530,6 +530,10 @@ model Conversation {
   adHeadline   String?
   adClickId    String?
 
+  /// Blocked via WhatsApp's Block Users API — Meta stops delivering their
+  /// messages to this number until unblocked.
+  blocked Boolean @default(false)
+
   messages ChatMessage[]
 
   createdAt DateTime @default(now())

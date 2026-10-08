@@ -151,7 +151,10 @@ function InboxPageInner() {
   const [listRows, setListRows] = useState<string[]>(["", ""]);
   // Catalog products + WhatsApp Flows composer (loaded from Meta on open).
   const [richOpen, setRichOpen] = useState(false);
-  const [richTab, setRichTab] = useState<"products" | "flows">("products");
+  const [richTab, setRichTab] = useState<"products" | "flows" | "contact">("products");
+  const [cardName, setCardName] = useState("");
+  const [cardPhone, setCardPhone] = useState("");
+  const [blocked, setBlocked] = useState(false);
   const [catalog, setCatalog] = useState<{ id: string; name: string | null; products: CatalogProductItem[] } | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -271,6 +274,7 @@ function InboxPageInner() {
       const data = await res.json();
       setActiveMessages(data.messages ?? []);
       const c = data.conversation;
+      setBlocked(Boolean(c?.blocked));
       setAdInfo(
         c && (c.adSourceType || c.adSourceUrl || c.adHeadline)
           ? { type: c.adSourceType ?? null, url: c.adSourceUrl ?? null, headline: c.adHeadline ?? null }
@@ -538,7 +542,7 @@ function InboxPageInner() {
     return () => clearInterval(t);
   }, []);
 
-  async function loadRichData(tab: "products" | "flows") {
+  async function loadRichData(tab: "products" | "flows" | "contact") {
     if (tab === "products" && !catalog && !catalogLoading) {
       setCatalogLoading(true);
       setCatalogError(null);
@@ -577,7 +581,7 @@ function InboxPageInner() {
     if (next) loadRichData(richTab);
   }
 
-  function switchRichTab(tab: "products" | "flows") {
+  function switchRichTab(tab: "products" | "flows" | "contact") {
     setRichTab(tab);
     loadRichData(tab);
   }
@@ -612,6 +616,48 @@ function InboxPageInner() {
     } finally {
       setSending(false);
     }
+  }
+
+  async function sendContactCard() {
+    if (!active || !cardName.trim() || !cardPhone.trim()) return;
+    setSendError(null);
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/send-contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: active.contactPhone,
+          name: active.contactName,
+          contactName: cardName,
+          contactPhone: cardPhone,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error ?? "Could not send the contact.");
+        return;
+      }
+      setCardName("");
+      setCardPhone("");
+      setRichOpen(false);
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function toggleBlock() {
+    if (!active) return;
+    setSendError(null);
+    const res = await fetch(`/api/inbox/conversations/${active.id}/block`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blocked: !blocked }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) setSendError(data.error ?? "Could not update the block.");
+    else setBlocked(!blocked);
   }
 
   async function sendFlow() {
@@ -903,6 +949,9 @@ function InboxPageInner() {
                   <div className="relative flex shrink-0 items-center gap-2">
                     <Button size="sm" aria-label="Search in this chat" onClick={() => setSearchOpen((s) => !s)}>
                       <Search className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" onClick={toggleBlock}>
+                      {blocked ? "Unblock" : "Block"}
                     </Button>
                     <Button size="sm" onClick={() => setShowDetails((s) => !s)}>
                       <Info className="h-3.5 w-3.5" />
@@ -1384,7 +1433,7 @@ function InboxPageInner() {
                   <div className="shrink-0 space-y-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs">
                     <div className="flex items-center justify-between">
                       <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-                        {(["products", "flows"] as const).map((t) => (
+                        {(["products", "flows", "contact"] as const).map((t) => (
                           <button
                             key={t}
                             type="button"
@@ -1393,7 +1442,7 @@ function InboxPageInner() {
                               richTab === t ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
                             }`}
                           >
-                            {t === "products" ? "Catalog products" : "WhatsApp Flow"}
+                            {t === "products" ? "Catalog products" : t === "flows" ? "WhatsApp Flow" : "Contact card"}
                           </button>
                         ))}
                       </div>
@@ -1407,9 +1456,35 @@ function InboxPageInner() {
                       </button>
                     </div>
 
-                    <p className="text-slate-500">The text in the reply box below is the message shown with it.</p>
+                    {richTab !== "contact" && (
+                      <p className="text-slate-500">The text in the reply box below is the message shown with it.</p>
+                    )}
 
-                    {richTab === "products" ? (
+                    {richTab === "contact" ? (
+                      <div className="flex flex-wrap items-end gap-2">
+                        <input
+                          value={cardName}
+                          onChange={(e) => setCardName(e.target.value)}
+                          placeholder="Contact name"
+                          className="h-8 w-44 rounded-lg border border-slate-300 bg-white px-2.5 text-xs"
+                        />
+                        <input
+                          value={cardPhone}
+                          onChange={(e) => setCardPhone(e.target.value)}
+                          placeholder="Phone with country code"
+                          className="h-8 w-52 rounded-lg border border-slate-300 bg-white px-2.5 text-xs"
+                        />
+                        <Button
+                          type="button"
+                          variant="primary"
+                          onClick={sendContactCard}
+                          disabled={!cardName.trim() || !cardPhone.trim() || sending}
+                        >
+                          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                          Send contact
+                        </Button>
+                      </div>
+                    ) : richTab === "products" ? (
                       catalogLoading ? (
                         <p className="text-slate-500">Loading your catalog…</p>
                       ) : catalogError ? (

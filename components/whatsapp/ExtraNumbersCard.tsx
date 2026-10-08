@@ -71,6 +71,14 @@ export default function ExtraNumbersCard() {
     }
   }
 
+  async function makePrimary(id: string) {
+    const res = await fetch(`/api/whatsapp-setup/numbers/${id}/make-primary`, { method: "POST" });
+    if (res.ok) {
+      // The main connection card above shows the old number — reload to refresh it.
+      window.location.reload();
+    }
+  }
+
   async function remove() {
     if (!removeId) return;
     const res = await fetch(`/api/whatsapp-setup/numbers/${removeId}`, { method: "DELETE" });
@@ -82,7 +90,7 @@ export default function ExtraNumbersCard() {
       <Card className="mt-5">
         <CardHeader
           title="Additional numbers"
-          description="Replies go out from the number the customer wrote to. Campaigns and bulk sends use your main number."
+          description="Replies go out from the number the customer wrote to. Campaigns and bulk sends use your main number — tap Make main to switch it."
           action={
             <Button onClick={() => setOpen(true)}>
               <Plus className="h-4 w-4" /> Add number
@@ -108,6 +116,13 @@ export default function ExtraNumbersCard() {
                     {n.qualityRating ? ` · ${n.qualityRating}` : ""}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => makePrimary(n.id)}
+                  className="shrink-0 rounded px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+                >
+                  Make main
+                </button>
                 <button
                   type="button"
                   aria-label="Remove number"

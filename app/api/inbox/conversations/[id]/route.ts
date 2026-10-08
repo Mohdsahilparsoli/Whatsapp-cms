@@ -23,6 +23,7 @@ export async function GET(_request: Request, { params }: Params) {
       adSourceType: conversation.adSourceType,
       adSourceUrl: conversation.adSourceUrl,
       adHeadline: conversation.adHeadline,
+      blocked: conversation.blocked,
     },
     messages: conversation.messages.map(
       (m: {
