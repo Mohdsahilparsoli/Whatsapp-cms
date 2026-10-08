@@ -24,6 +24,9 @@ export default function BusinessProfileCard() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
   const [pin, setPin] = useState("");
   const [code, setCode] = useState("");
   const [regBusy, setRegBusy] = useState(false);
@@ -64,6 +67,23 @@ export default function BusinessProfileCard() {
       setMessage(res.ok ? { ok: true, text: "Profile updated on WhatsApp." } : { ok: false, text: data.error ?? "Could not save." });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function uploadPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPhotoBusy(true);
+    setPhotoMessage(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/whatsapp-setup/profile/photo", { method: "POST", body: formData });
+      const data = await res.json();
+      setPhotoMessage(res.ok ? { ok: true, text: "Photo updated." } : { ok: false, text: data.error ?? "Could not update the photo." });
+    } finally {
+      setPhotoBusy(false);
     }
   }
 
@@ -149,7 +169,16 @@ export default function BusinessProfileCard() {
             </Button>
             {message && <span className={`text-xs ${message.ok ? "text-emerald-600" : "text-red-600"}`}>{message.text}</span>}
           </div>
-          <p className="text-xs text-slate-400">The profile photo is changed in WhatsApp Manager, not here.</p>
+          <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {profile.profilePictureUrl && <img src={profile.profilePictureUrl} alt="Profile" className="h-12 w-12 rounded-full object-cover" />}
+            <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              {photoBusy ? "Uploading…" : "Change profile photo"}
+              <input type="file" accept="image/jpeg,image/png" onChange={uploadPhoto} disabled={photoBusy} className="hidden" />
+            </label>
+            <span className="text-xs text-slate-400">JPEG or PNG, at least 640×640, up to 5MB.</span>
+            {photoMessage && <span className={`text-xs ${photoMessage.ok ? "text-emerald-600" : "text-red-600"}`}>{photoMessage.text}</span>}
+          </div>
         </div>
       )}
 

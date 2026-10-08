@@ -199,16 +199,10 @@ export interface SubmittableTemplate {
  * Signup, which does need the public prefix) so either one set is enough —
  * no need to duplicate the same App ID under two keys.
  */
-type UploadMediaResult = { ok: true; handle: string } | { ok: false; error: string };
+export type UploadMediaResult = { ok: true; handle: string } | { ok: false; error: string };
 
-async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: string): Promise<UploadMediaResult> {
-  const appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
-  if (!appId) {
-    return { ok: false, error: "META_APP_ID (or NEXT_PUBLIC_META_APP_ID) is not set in this environment." };
-  }
-
+export async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: string): Promise<UploadMediaResult> {
   const fileUrl = mediaUrl.startsWith("http") ? mediaUrl : `${origin}${mediaUrl}`;
-
   try {
     const fileRes = await fetch(fileUrl);
     if (!fileRes.ok) {
@@ -219,7 +213,25 @@ async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: 
     }
     const buffer = Buffer.from(await fileRes.arrayBuffer());
     const contentType = fileRes.headers.get("content-type") ?? "application/octet-stream";
+    return uploadBufferForHandle(accessToken, buffer, contentType);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not reach Meta's upload API." };
+  }
+}
 
+/** The two Resumable Upload calls themselves, for bytes we already hold
+ * (also used for the business profile photo). */
+export async function uploadBufferForHandle(
+  accessToken: string,
+  buffer: Buffer,
+  contentType: string
+): Promise<UploadMediaResult> {
+  const appId = process.env.META_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
+  if (!appId) {
+    return { ok: false, error: "META_APP_ID (or NEXT_PUBLIC_META_APP_ID) is not set in this environment." };
+  }
+
+  try {
     const sessionRes = await fetch(
       `https://graph.facebook.com/v25.0/${appId}/uploads?file_length=${buffer.length}&file_type=${encodeURIComponent(
         contentType
@@ -245,7 +257,7 @@ async function uploadMediaHandle(accessToken: string, mediaUrl: string, origin: 
         Authorization: `OAuth ${accessToken}`,
         file_offset: "0",
       },
-      body: buffer,
+      body: new Uint8Array(buffer),
     });
     const uploaded: { h?: string; error?: { message?: string; error_user_msg?: string } } = await uploadRes
       .json()
