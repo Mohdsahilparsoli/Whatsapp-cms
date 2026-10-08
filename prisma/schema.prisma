@@ -77,6 +77,8 @@ model Client {
   messageRecords MessageRecord[]
   whatsappAccount WhatsAppAccount?
   additionalNumbers AdditionalWhatsAppNumber[]
+  apiKeys           ApiKey[]
+  otpRequests       OtpRequest[]
   contactLists ContactList[]
   conversations Conversation[]
 
@@ -627,4 +629,41 @@ model ChatMessage {
   @@index([conversationId])
   @@index([clientId])
   @@map("chat_messages")
+}
+
+/// A client's API key for the public /api/v1/* endpoints (OTP send/verify).
+/// Only the SHA-256 of the key is stored; the plain key is shown once at
+/// creation. `prefix` is the first characters, for recognising it in a list.
+model ApiKey {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([clientId])
+  @@map("api_keys")
+}
+
+/// One OTP we generated and sent. The code itself is never stored, only an
+/// HMAC of it; verification is capped at a few attempts and expires.
+model OtpRequest {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  verifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([clientId, phone])
+  @@map("otp_requests")
 }

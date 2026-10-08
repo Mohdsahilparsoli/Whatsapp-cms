@@ -7,6 +7,7 @@ import Button from "@/components/ui/Button";
 import Tabs from "@/components/ui/Tabs";
 import FormField, { SelectField } from "@/components/ui/FormField";
 import { roleLabel, useAuth } from "@/lib/auth";
+import ApiKeysCard from "@/components/settings/ApiKeysCard";
 import type { CmsPrefs, NotificationPrefs } from "@/types";
 
 const DEFAULT_NOTIFICATIONS: NotificationPrefs = {
@@ -164,6 +165,7 @@ export default function SettingsPage() {
               { label: "Password", value: "password" },
               { label: "Notifications", value: "notifications" },
               { label: "Preferences", value: "preferences" },
+              ...(user?.role === "super_admin" ? [] : [{ label: "API & OTP", value: "api" }]),
             ]}
             active={tab}
             onChange={setTab}
@@ -218,6 +220,8 @@ export default function SettingsPage() {
             </Button>
           </div>
         )}
+
+        {tab === "api" && <ApiKeysCard />}
 
         {tab === "notifications" && (
           <div className="max-w-xl px-5 py-5">
