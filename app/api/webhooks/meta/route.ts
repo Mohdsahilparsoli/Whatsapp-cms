@@ -37,11 +37,13 @@ interface IncomingMessage {
   id: string;
   from: string; // sender's phone number, no "+"
   timestamp?: string;
-  type: "text" | "image" | "document" | "video" | "button" | "interactive" | string;
+  type: "text" | "image" | "document" | "video" | "audio" | "button" | "interactive" | string;
   text?: { body: string };
   image?: { id: string; caption?: string };
   document?: { id: string; caption?: string; filename?: string };
   video?: { id: string; caption?: string };
+  /** Voice note (voice: true) or an audio file the customer sent. */
+  audio?: { id: string; voice?: boolean };
   /** Legacy quick-reply tap on a Meta Message Template's QUICK_REPLY button. */
   button?: { text: string; payload?: string };
   /** Current-format reply to a QUICK_REPLY (or list/interactive) button. */
@@ -152,6 +154,11 @@ const MIME_EXTENSIONS: Record<string, string> = {
   "text/plain": ".txt",
   "video/mp4": ".mp4",
   "video/3gpp": ".3gp",
+  "audio/ogg": ".ogg",
+  "audio/mpeg": ".mp3",
+  "audio/mp4": ".m4a",
+  "audio/aac": ".aac",
+  "audio/amr": ".amr",
 };
 
 /**
@@ -175,7 +182,7 @@ async function downloadAndStoreIncomingMedia(
   clientId: string,
   mediaId: string,
   fileNameHint: string | undefined,
-  kind: "image" | "document" | "video"
+  kind: "image" | "document" | "video" | "audio"
 ): Promise<{ url: string; fileName: string } | null> {
   try {
     const credentials = await getWhatsAppCredentials(clientId);
@@ -211,7 +218,7 @@ async function downloadAndStoreIncomingMedia(
     const buffer = Buffer.from(await fileRes.arrayBuffer());
 
     const mimeType = meta.mime_type?.split(";")[0]?.trim() ?? "application/octet-stream";
-    const extension = MIME_EXTENSIONS[mimeType] ?? (kind === "image" ? ".jpg" : kind === "video" ? ".mp4" : "");
+    const extension = MIME_EXTENSIONS[mimeType] ?? (kind === "image" ? ".jpg" : kind === "video" ? ".mp4" : kind === "audio" ? ".ogg" : "");
     const fileName =
       fileNameHint && fileNameHint.trim().length > 0 ? fileNameHint : `${kind}-${randomUUID()}${extension}`;
     const storageKey = `${randomUUID()}${extension}`;
@@ -241,12 +248,21 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
   const when = message.timestamp ? new Date(Number(message.timestamp) * 1000) : new Date();
 
   let text = "";
-  let type: "text" | "image" | "document" | "video" = "text";
+  let type: "text" | "image" | "document" | "video" | "audio" = "text";
   let mediaUrl: string | null = null;
   let mediaFileName: string | null = null;
 
   if (message.type === "text") {
     text = message.text?.body ?? "";
+  } else if (message.type === "audio") {
+    type = "audio";
+    if (message.audio?.id) {
+      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.audio.id, undefined, "audio");
+      if (downloaded) {
+        mediaUrl = downloaded.url;
+        mediaFileName = downloaded.fileName;
+      }
+    }
   } else if (message.type === "button") {
     // A tap on a Meta Message Template's QUICK_REPLY button — treat its
     // label like a normal text reply from the customer (see

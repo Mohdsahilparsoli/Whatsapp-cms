@@ -198,7 +198,11 @@ export default function CampaignsPage() {
 
       await loadCampaigns();
       setToast(
-        mode_ === "now"
+        data.blockedReason
+          ? // Meta quality-rating / messaging-limit gate (lib/sendPolicy.ts):
+            // nothing was sent, so say why instead of "0 delivered, 0 failed".
+            `“${data.campaign.name}” was not sent. ${data.blockedReason}`
+          : mode_ === "now"
           ? `“${data.campaign.name}” sent — ${data.campaign.sentCount} delivered, ${data.campaign.failedCount} failed.`
           : mode_ === "schedule"
             ? `“${data.campaign.name}” scheduled for ${formatDateTime(scheduledAt)}.`

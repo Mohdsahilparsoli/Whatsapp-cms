@@ -61,6 +61,7 @@ interface SetupStatus {
   phoneNumberId: string | null;
   displayNumber: string | null;
   qualityRating: string | null;
+  messagingTier: string | null;
   connectedAt: string | null;
   maskedToken: string | null;
 }
@@ -303,6 +304,17 @@ export default function WhatsAppSetupPage() {
                 <Detail label="Phone Number ID" value={status.phoneNumberId ?? "—"} mono />
                 <Detail label="Display number" value={status.displayNumber ?? "—"} />
                 <Detail label="Quality rating" value={status.qualityRating ?? "—"} />
+                <Detail label="Messaging limit (per 24h)" value={formatTier(status.messagingTier)} />
+                {status.qualityRating?.toUpperCase() === "RED" && (
+                  <p className="sm:col-span-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                    Quality rating is RED — campaign and bulk sending is paused until it recovers, to protect this number from a Meta restriction.
+                  </p>
+                )}
+                {status.qualityRating?.toUpperCase() === "YELLOW" && (
+                  <p className="sm:col-span-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Quality rating is YELLOW — campaigns are being sent more slowly than usual until it improves.
+                  </p>
+                )}
                 <Detail label="Access token" value={status.maskedToken ?? "—"} mono />
                 <Detail
                   label="Connected on"
@@ -428,6 +440,21 @@ export default function WhatsAppSetupPage() {
       />
     </div>
   );
+}
+
+function formatTier(tier: string | null): string {
+  if (!tier) return "—";
+  const labels: Record<string, string> = {
+    TIER_NOT_SET: "250 people",
+    TIER_50: "50 people",
+    TIER_250: "250 people",
+    TIER_1K: "1,000 people",
+    TIER_2K: "2,000 people",
+    TIER_10K: "10,000 people",
+    TIER_100K: "100,000 people",
+    TIER_UNLIMITED: "Unlimited",
+  };
+  return labels[tier.toUpperCase()] ?? tier;
 }
 
 function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

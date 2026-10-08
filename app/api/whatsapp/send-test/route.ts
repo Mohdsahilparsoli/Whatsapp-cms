@@ -3,6 +3,8 @@ import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { normalizePhone } from "@/lib/phone";
+import { getConversationWindow } from "@/lib/sessionWindowServer";
+import { SESSION_CLOSED_MESSAGE } from "@/lib/sessionWindow";
 
 /**
  * Sends via the signed-in client's own connected WhatsApp account if they
@@ -53,6 +55,12 @@ export async function POST(request: Request) {
   const to = normalizePhone(rawDigits);
   if (!message) {
     return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+  }
+
+  // Proactive 24h-window check (see lib/sessionWindow.ts) — say so up front
+  // instead of making a doomed round trip to Meta first.
+  if (!(await getConversationWindow(auth.clientId, to)).open) {
+    return NextResponse.json({ error: SESSION_CLOSED_MESSAGE, code: "session_closed" }, { status: 409 });
   }
 
   // Swipe-to-reply — if this reply was made against a specific earlier

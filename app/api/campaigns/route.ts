@@ -73,9 +73,9 @@ export async function POST(request: Request) {
   });
 
   if (c.mode === "now") {
-    await runCampaign(campaign.id);
+    const run = await runCampaign(campaign.id);
     const finished = await prisma.campaign.findUnique({ where: { id: campaign.id } });
-    return NextResponse.json({ campaign: toPublicCampaign(finished ?? campaign) }, { status: 201 });
+    return NextResponse.json({ campaign: toPublicCampaign(finished ?? campaign), blockedReason: run.blocked ?? null }, { status: 201 });
   }
 
   return NextResponse.json({ campaign: toPublicCampaign(campaign) }, { status: 201 });

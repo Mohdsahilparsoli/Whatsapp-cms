@@ -439,6 +439,12 @@ model WhatsAppAccount {
   phoneNumberId String?
   displayNumber String?
   qualityRating String?
+  /// Meta's messaging-limit tier for this number (TIER_250, TIER_1K,
+  /// TIER_10K, TIER_100K, TIER_UNLIMITED) — how many distinct people it may
+  /// start conversations with per rolling 24h. Refreshed alongside
+  /// qualityRating; see lib/sendPolicy.ts for how both gate real sends.
+  messagingTier String?
+  qualityCheckedAt DateTime?
   /// AES-256-GCM ciphertext (base64: iv.authTag.ciphertext) — see
   /// lib/crypto.ts. Never stored or returned in plain text.
   accessTokenEnc String?
@@ -504,6 +510,7 @@ enum ChatMessageType {
   image
   document
   video
+  audio
 }
 
 /// One real message in a Conversation — inbound (from the customer, via

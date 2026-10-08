@@ -11,6 +11,7 @@ import {
   Download,
   FileText,
   Info,
+  ListChecks,
   Loader2,
   Maximize2,
   MoreVertical,
@@ -29,6 +30,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { formatDateTime } from "@/lib/utils";
+import { formatWindowLeft, getSessionWindow } from "@/lib/sessionWindow";
 
 interface ConversationSummary {
   id: string;
@@ -44,7 +46,7 @@ interface ConversationSummary {
 interface RealMessage {
   id: string;
   direction: "inbound" | "outbound";
-  type: "text" | "image" | "document" | "video";
+  type: "text" | "image" | "document" | "video" | "audio";
   text: string;
   mediaUrl: string | null;
   mediaFileName: string | null;
@@ -114,6 +116,15 @@ function InboxPageInner() {
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Interactive (tap-to-reply buttons / list menu) composer. The text typed
+  // in the normal reply box becomes the message body.
+  const [interactiveOpen, setInteractiveOpen] = useState(false);
+  const [interactiveKind, setInteractiveKind] = useState<"buttons" | "list">("buttons");
+  const [buttonTitles, setButtonTitles] = useState<string[]>(["", ""]);
+  const [listLabel, setListLabel] = useState("Choose an option");
+  const [listRows, setListRows] = useState<string[]>(["", ""]);
+  // Ticks every 30s so the 24h-window countdown stays current on its own.
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -342,6 +353,20 @@ function InboxPageInner() {
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
 
+  // WhatsApp's 24-hour window — measured from the customer's last inbound
+  // message. Outside it, Meta only accepts an approved template, so the
+  // composer says so up front instead of failing after you press Send.
+  const lastInboundAt = useMemo(() => {
+    for (let i = activeMessages.length - 1; i >= 0; i--) {
+      if (activeMessages[i].direction === "inbound") return activeMessages[i].createdAt;
+    }
+    return null;
+  }, [activeMessages]);
+  const sessionWindow = getSessionWindow(lastInboundAt, nowTick);
+  // Don't flash "closed" while a freshly opened chat's messages are loading.
+  const windowClosed = Boolean(active) && !messagesLoading && !sessionWindow.open;
+  const windowClosingSoon = !windowClosed && !messagesLoading && sessionWindow.open && sessionWindow.msLeft < 4 * 60 * 60 * 1000;
+
   async function openConversation(id: string) {
     // Only show the loading skeleton when actually switching conversations
     // — reopening the same one (e.g. a stray re-click) shouldn't wipe the
@@ -438,6 +463,52 @@ function InboxPageInner() {
       typingRenewIntervalRef.current = setInterval(() => {
         if (active) sendTypingIndicator(active.id);
       }, 20000);
+    }
+  }
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  async function sendInteractive() {
+    const text = draft.trim();
+    if (!text || !active) return;
+
+    setSendError(null);
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/send-interactive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: active.contactPhone,
+          name: active.contactName,
+          message: text,
+          kind: interactiveKind,
+          buttons: buttonTitles,
+          listButtonLabel: listLabel,
+          rows: listRows.map((title) => ({ title })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error ?? "Could not send message.");
+        return;
+      }
+
+      setDraft("");
+      setInteractiveOpen(false);
+      setButtonTitles(["", ""]);
+      setListRows(["", ""]);
+      lastTypingSentAtRef.current = 0;
+      if (typingRenewIntervalRef.current) {
+        clearInterval(typingRenewIntervalRef.current);
+        typingRenewIntervalRef.current = null;
+      }
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
+    } finally {
+      setSending(false);
     }
   }
 
@@ -792,9 +863,11 @@ function InboxPageInner() {
                                 ? "📷 Photo"
                                 : message.replyToType === "video"
                                   ? "🎥 Video"
-                                  : message.replyToType === "document"
-                                    ? "📄 Document"
-                                    : message.replyToText || ""}
+                                  : message.replyToType === "audio"
+                                    ? "🎤 Voice message"
+                                    : message.replyToType === "document"
+                                      ? "📄 Document"
+                                      : message.replyToText || ""}
                             </p>
                           </button>
                         )}
@@ -865,6 +938,18 @@ function InboxPageInner() {
                                 : ""}
                             </p>
                           )}
+                          {message.type === "audio" && message.mediaUrl && (
+                            <audio
+                              key={message.mediaUrl}
+                              src={message.mediaUrl}
+                              controls
+                              preload="metadata"
+                              className="mb-1.5 h-10 w-60 max-w-full"
+                            />
+                          )}
+                          {message.type === "audio" && !message.mediaUrl && (
+                            <p className="mb-1 text-xs text-slate-400">🎤 Voice message (not downloaded)</p>
+                          )}
                           {message.type === "image" && !message.mediaUrl && (
                             <p className="mb-1 text-xs text-slate-400">📷 Photo received (not downloaded)</p>
                           )}
@@ -887,7 +972,7 @@ function InboxPageInner() {
                               📄 {message.mediaFileName ?? "Document"} received (not downloaded)
                             </p>
                           )}
-                          {message.text && <p className="leading-relaxed">{message.text}</p>}
+                          {message.text && <p className="whitespace-pre-wrap leading-relaxed">{message.text}</p>}
                           <p className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
                             {formatDateTime(message.createdAt)}
                             {message.direction === "outbound" && <Ticks status={message.status} />}
@@ -947,6 +1032,26 @@ function InboxPageInner() {
                   </div>
                 )}
 
+                {windowClosed && (
+                  <div className="shrink-0 border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+                    <p className="font-medium">24-hour reply window closed</p>
+                    <p className="mt-0.5">
+                      {lastInboundAt
+                        ? "This customer hasn't messaged you in the last 24 hours, so WhatsApp only allows an approved template now."
+                        : "This customer hasn't messaged you yet, so WhatsApp only allows an approved template to start the conversation."}{" "}
+                      <a href="/bulk-sender" className="font-medium underline">
+                        Send a template
+                      </a>
+                      . Once they reply, you can chat freely again.
+                    </p>
+                  </div>
+                )}
+                {windowClosingSoon && (
+                  <div className="shrink-0 border-t border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-800">
+                    Reply window closes in {formatWindowLeft(sessionWindow.msLeft)} — after that only a template can be sent.
+                  </div>
+                )}
+
 
                 {replyTo && (
                   <div className="flex shrink-0 items-center gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2">
@@ -959,9 +1064,11 @@ function InboxPageInner() {
                           ? "📷 Photo"
                           : replyTo.type === "video"
                             ? "🎥 Video"
-                            : replyTo.type === "document"
-                              ? "📄 Document"
-                              : replyTo.text || ""}
+                            : replyTo.type === "audio"
+                              ? "🎤 Voice message"
+                              : replyTo.type === "document"
+                                ? "📄 Document"
+                                : replyTo.text || ""}
                       </p>
                     </div>
                     <button
@@ -975,6 +1082,106 @@ function InboxPageInner() {
                   </div>
                 )}
 
+                {interactiveOpen && !windowClosed && (
+                  <div className="shrink-0 space-y-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                        {(["buttons", "list"] as const).map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => setInteractiveKind(k)}
+                            className={`rounded-md px-3 py-1 font-medium ${
+                              interactiveKind === k ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                          >
+                            {k === "buttons" ? "Reply buttons" : "List menu"}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Close interactive composer"
+                        onClick={() => setInteractiveOpen(false)}
+                        className="rounded-full p-1 text-slate-400 hover:bg-slate-200"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <p className="text-slate-500">
+                      The text in the reply box below is the message. Add the options the customer can tap.
+                    </p>
+
+                    {interactiveKind === "list" && (
+                      <input
+                        value={listLabel}
+                        onChange={(e) => setListLabel(e.target.value)}
+                        maxLength={20}
+                        aria-label="Menu button label"
+                        placeholder="Menu button label"
+                        className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    )}
+
+                    {(interactiveKind === "buttons" ? buttonTitles : listRows).map((value, i) => {
+                      const setValues = interactiveKind === "buttons" ? setButtonTitles : setListRows;
+                      const values = interactiveKind === "buttons" ? buttonTitles : listRows;
+                      return (
+                        <div key={i} className="flex items-center gap-2">
+                          <input
+                            value={value}
+                            onChange={(e) => setValues(values.map((v, j) => (j === i ? e.target.value : v)))}
+                            maxLength={interactiveKind === "buttons" ? 20 : 24}
+                            aria-label={`Option ${i + 1}`}
+                            placeholder={`Option ${i + 1}`}
+                            className="h-9 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                          />
+                          {values.length > 1 && (
+                            <button
+                              type="button"
+                              aria-label={`Remove option ${i + 1}`}
+                              onClick={() => setValues(values.filter((_, j) => j !== i))}
+                              className="rounded-full p-1 text-slate-400 hover:bg-slate-200"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          interactiveKind === "buttons"
+                            ? setButtonTitles((v) => (v.length < 3 ? [...v, ""] : v))
+                            : setListRows((v) => (v.length < 10 ? [...v, ""] : v))
+                        }
+                        disabled={interactiveKind === "buttons" ? buttonTitles.length >= 3 : listRows.length >= 10}
+                        className="font-medium text-indigo-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+                      >
+                        + Add option
+                        {interactiveKind === "buttons" ? " (max 3)" : " (max 10)"}
+                      </button>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        onClick={sendInteractive}
+                        disabled={
+                          !draft.trim() ||
+                          sending ||
+                          (interactiveKind === "buttons" ? buttonTitles : listRows).every((v) => !v.trim())
+                        }
+                      >
+                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        Send {interactiveKind === "buttons" ? "buttons" : "list"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <form
                   onSubmit={sendReply}
                   className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-4 py-3"
@@ -982,7 +1189,7 @@ function InboxPageInner() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.mp3,.m4a,.aac,.amr,.ogg,audio/mpeg,audio/mp4,audio/aac,audio/ogg"
                     onChange={handleFilePick}
                     className="hidden"
                   />
@@ -990,9 +1197,18 @@ function InboxPageInner() {
                     type="button"
                     aria-label="Attach a photo or document"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={active.consent === "opted_out" || uploading}
+                    disabled={active.consent === "opted_out" || uploading || windowClosed}
                   >
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    aria-label="Send reply buttons or a list"
+                    title="Reply buttons / list menu"
+                    onClick={() => setInteractiveOpen((o) => !o)}
+                    disabled={active.consent === "opted_out" || windowClosed}
+                  >
+                    <ListChecks className="h-4 w-4" />
                   </Button>
                   <input
                     value={draft}
@@ -1001,15 +1217,17 @@ function InboxPageInner() {
                     placeholder={
                       active.consent === "opted_out"
                         ? "This contact opted out of messages"
-                        : "Type a reply"
+                        : windowClosed
+                          ? "24-hour window closed — send a template instead"
+                          : "Type a reply"
                     }
-                    disabled={active.consent === "opted_out" || sending}
+                    disabled={active.consent === "opted_out" || sending || windowClosed}
                     className="h-10 flex-1 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
                   />
                   <Button
                     type="submit"
                     variant="primary"
-                    disabled={!draft.trim() || active.consent === "opted_out" || sending}
+                    disabled={!draft.trim() || active.consent === "opted_out" || sending || windowClosed}
                   >
                     {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     {sending ? "Sending…" : "Send"}

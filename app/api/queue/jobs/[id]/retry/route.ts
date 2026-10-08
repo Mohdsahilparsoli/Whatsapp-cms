@@ -23,11 +23,11 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  const ok = await retryQueueJob(id, auth.clientId, new URL(request.url).origin);
-  if (!ok) {
+  const retry = await retryQueueJob(id, auth.clientId, new URL(request.url).origin);
+  if (!retry.ok) {
     return NextResponse.json(
-      { error: "Could not retry — the queue may be paused." },
-      { status: 409 }
+      { error: retry.blocked ?? "Could not retry — the queue may be paused." },
+      { status: retry.blocked ? 429 : 409 }
     );
   }
 

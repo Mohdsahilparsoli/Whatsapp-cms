@@ -81,9 +81,9 @@ export async function PUT(request: Request, { params }: Params) {
   });
 
   if (c.mode === "now") {
-    await runCampaign(campaign.id);
+    const run = await runCampaign(campaign.id);
     const finished = await prisma.campaign.findUnique({ where: { id } });
-    return NextResponse.json({ campaign: toPublicCampaign(finished ?? campaign) });
+    return NextResponse.json({ campaign: toPublicCampaign(finished ?? campaign), blockedReason: run.blocked ?? null });
   }
 
   return NextResponse.json({ campaign: toPublicCampaign(campaign) });

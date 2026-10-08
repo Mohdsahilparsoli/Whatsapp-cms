@@ -22,6 +22,13 @@ const ALLOWED: Record<string, { mimeTypes: string[]; extensions: string[] }> = {
     ],
     extensions: [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt"],
   },
+  // Meta's supported audio formats: AAC, M4A, AMR, MP3, OGG (Opus only).
+  // A browser's own mic recording (webm) is NOT accepted by Meta, so voice
+  // notes have to be uploaded as one of these files.
+  audio: {
+    mimeTypes: ["audio/aac", "audio/mp4", "audio/mpeg", "audio/amr", "audio/ogg"],
+    extensions: [".aac", ".m4a", ".mp3", ".amr", ".ogg"],
+  },
 };
 
 /**
@@ -58,15 +65,17 @@ export async function POST(request: Request) {
   }
 
   const ext = path.extname(file.name).toLowerCase();
-  const kind: "image" | "document" | null = ALLOWED.image.extensions.includes(ext)
+  const kind: "image" | "document" | "audio" | null = ALLOWED.image.extensions.includes(ext)
     ? "image"
     : ALLOWED.document.extensions.includes(ext)
       ? "document"
-      : null;
+      : ALLOWED.audio.extensions.includes(ext)
+        ? "audio"
+        : null;
 
   if (!kind) {
     return NextResponse.json(
-      { error: "Unsupported file type. Send an image (jpg/png/webp) or document (pdf/doc/docx/xls/xlsx/txt)." },
+      { error: "Unsupported file type. Send an image (jpg/png/webp), document (pdf/doc/docx/xls/xlsx/txt) or audio (mp3/m4a/aac/amr/ogg)." },
       { status: 400 }
     );
   }

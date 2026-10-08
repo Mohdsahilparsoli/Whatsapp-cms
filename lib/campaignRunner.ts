@@ -14,9 +14,9 @@ import { getAppOrigin } from "@/lib/appUrl";
  * just re-sends (callers should avoid that, but this function itself won't
  * corrupt state).
  */
-export async function runCampaign(campaignId: string): Promise<void> {
+export async function runCampaign(campaignId: string): Promise<{ blocked?: string }> {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  if (!campaign) return;
+  if (!campaign) return {};
 
   const template = await prisma.customTemplate.findFirst({
     where: { id: campaign.templateId, clientId: campaign.clientId },
@@ -26,7 +26,7 @@ export async function runCampaign(campaignId: string): Promise<void> {
       where: { id: campaignId },
       data: { status: "failed" },
     });
-    return;
+    return {};
   }
 
   const contacts = await prisma.contact.findMany({
@@ -89,11 +89,24 @@ export async function runCampaign(campaignId: string): Promise<void> {
       where: { id: campaignId },
       data: { status: campaign.scheduledAt ? "scheduled" : "draft" },
     });
-    return;
+    return {};
+  }
+
+  if (result.blocked) {
+    // Meta quality rating / messaging-tier gate (lib/sendPolicy.ts). Marked
+    // failed (not left "scheduled") so the scheduler doesn't retry it every
+    // tick; the client can fix the cause and re-run the campaign.
+    console.warn(`campaignRunner: campaign ${campaignId} blocked — ${result.blocked}`);
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: "failed", sentCount: 0, failedCount: 0 },
+    });
+    return { blocked: result.blocked };
   }
 
   await prisma.campaign.update({
     where: { id: campaignId },
     data: { status: "completed", sentCount: result.sent, failedCount: result.failed },
   });
+  return {};
 }

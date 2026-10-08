@@ -67,7 +67,9 @@ export async function GET() {
                 ? "📷 Photo"
                 : c.messages[0].type === "video"
                   ? "🎥 Video"
-                  : "📄 Document"
+                  : c.messages[0].type === "audio"
+                    ? "🎤 Voice message"
+                    : "📄 Document"
             : "",
           consent: contact?.consent ?? null,
           tags: contact?.tags ?? [],

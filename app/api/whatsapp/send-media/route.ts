@@ -3,6 +3,8 @@ import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
 import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
 import { normalizePhone } from "@/lib/phone";
+import { getConversationWindow } from "@/lib/sessionWindowServer";
+import { SESSION_CLOSED_MESSAGE } from "@/lib/sessionWindow";
 
 /**
  * Sends via the signed-in client's own connected WhatsApp account if they
@@ -35,7 +37,7 @@ export async function POST(request: Request) {
     to?: string;
     name?: string;
     mediaUrl?: string;
-    mediaKind?: "image" | "document";
+    mediaKind?: "image" | "document" | "audio";
     fileName?: string;
     caption?: string;
   };
@@ -55,17 +57,26 @@ export async function POST(request: Request) {
   // Same canonical form as everywhere else a Conversation is written — see
   // lib/phone.ts and the identical note in send-test/route.ts.
   const to = normalizePhone(rawDigits);
-  if (!mediaUrl || (mediaKind !== "image" && mediaKind !== "document")) {
+  if (!mediaUrl || (mediaKind !== "image" && mediaKind !== "document" && mediaKind !== "audio")) {
     return NextResponse.json({ error: "Upload a file first." }, { status: 400 });
   }
 
-  const absoluteUrl = mediaUrl.startsWith("http") ? mediaUrl : `${new URL(request.url).origin}${mediaUrl}`;
-  const preview = mediaKind === "image" ? "📷 Photo" : `📄 ${body.fileName ?? "Document"}`;
+  // Proactive 24h-window check — see lib/sessionWindow.ts.
+  if (!(await getConversationWindow(auth.clientId, to)).open) {
+    return NextResponse.json({ error: SESSION_CLOSED_MESSAGE, code: "session_closed" }, { status: 409 });
+  }
 
+  const absoluteUrl = mediaUrl.startsWith("http") ? mediaUrl : `${new URL(request.url).origin}${mediaUrl}`;
+  const preview =
+    mediaKind === "image" ? "📷 Photo" : mediaKind === "audio" ? "🎤 Voice message" : `📄 ${body.fileName ?? "Document"}`;
+
+  // Meta's audio messages take only a link — no caption, no filename.
   const mediaPayload =
-    mediaKind === "image"
-      ? { link: absoluteUrl, caption: body.caption?.trim() || undefined }
-      : { link: absoluteUrl, filename: body.fileName, caption: body.caption?.trim() || undefined };
+    mediaKind === "audio"
+      ? { link: absoluteUrl }
+      : mediaKind === "image"
+        ? { link: absoluteUrl, caption: body.caption?.trim() || undefined }
+        : { link: absoluteUrl, filename: body.fileName, caption: body.caption?.trim() || undefined };
 
   try {
     const res = await fetch(`https://graph.facebook.com/v25.0/${phoneNumberId}/messages`, {
@@ -131,7 +142,7 @@ export async function POST(request: Request) {
         clientId: auth.clientId,
         direction: "outbound",
         type: mediaKind,
-        text: body.caption?.trim() ?? "",
+        text: mediaKind === "audio" ? "" : body.caption?.trim() ?? "",
         mediaUrl,
         mediaFileName: body.fileName,
         whatsappMessageId,

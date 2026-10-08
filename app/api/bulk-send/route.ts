@@ -104,6 +104,11 @@ export async function POST(request: Request) {
     );
   }
 
+  if (result.blocked) {
+    // Meta quality rating / messaging-tier gate (lib/sendPolicy.ts).
+    return NextResponse.json({ error: result.blocked }, { status: 429 });
+  }
+
   const skipped = contactIds.length - contacts.length; // not opted-in, or not this client's
   return NextResponse.json({
     total: contactIds.length,

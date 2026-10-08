@@ -7,6 +7,7 @@ import { buildTemplateSendPayload } from "@/lib/metaTemplates";
 import { personalizeVariables } from "@/lib/personalize";
 import { fillTemplate } from "@/lib/utils";
 import { normalizePhone } from "@/lib/phone";
+import { getSendPolicy } from "@/lib/sendPolicy";
 
 interface BatchContact {
   id: string;
@@ -267,11 +268,23 @@ export async function enqueueAndProcess(params: {
   mediaKind?: "image" | "video" | "document" | "none" | null;
   mediaUrl?: string | null;
   mediaFileName?: string | null;
-}): Promise<{ sent: number; failed: number; paused: boolean }> {
+}): Promise<{ sent: number; failed: number; paused: boolean; blocked?: string }> {
   const settings = await getQueueSettings(params.clientId);
   if (settings.paused) {
     return { sent: 0, failed: 0, paused: true };
   }
+
+  // Meta quality rating / messaging-tier gate — see lib/sendPolicy.ts.
+  const policy = await getSendPolicy(
+    params.clientId,
+    params.contacts.map((c) => normalizePhone(c.phone))
+  );
+  if (!policy.allowed) {
+    return { sent: 0, failed: 0, paused: false, blocked: policy.reason };
+  }
+  const messagesPerMinute = policy.maxPerMinute
+    ? Math.min(settings.messagesPerMinute, policy.maxPerMinute)
+    : settings.messagesPerMinute;
 
   const batchSize = Math.max(settings.batchSize, 1);
   const chunks: BatchContact[][] = [];
@@ -301,7 +314,7 @@ export async function enqueueAndProcess(params: {
       },
     });
 
-    const result = await sendBatch(batchContacts, params.buildPayload, settings.messagesPerMinute, {
+    const result = await sendBatch(batchContacts, params.buildPayload, messagesPerMinute, {
       clientId: params.clientId,
       queueJobId: job.id,
       campaignId: params.campaignId,
@@ -340,16 +353,30 @@ export async function enqueueAndProcess(params: {
  * base URL) is needed to turn a relative media path back into an absolute
  * URL Meta can fetch — same as the original send. Updates the same
  * MessageRecord rows rather than creating duplicates. */
-export async function retryQueueJob(jobId: string, clientId: string, origin: string): Promise<boolean> {
+export async function retryQueueJob(
+  jobId: string,
+  clientId: string,
+  origin: string
+): Promise<{ ok: true } | { ok: false; blocked?: string }> {
   const job = await prisma.queueJob.findFirst({ where: { id: jobId, clientId } });
-  if (!job) return false;
+  if (!job) return { ok: false };
 
   const settings = await getQueueSettings(clientId);
-  if (settings.paused) return false;
+  if (settings.paused) return { ok: false };
 
   const contacts = await prisma.contact.findMany({
     where: { id: { in: job.contactIds }, clientId },
   });
+
+  // Same Meta quality-rating / tier gate as a fresh send.
+  const policy = await getSendPolicy(
+    clientId,
+    contacts.map((c: { phone: string }) => normalizePhone(c.phone))
+  );
+  if (!policy.allowed) return { ok: false, blocked: policy.reason };
+  const messagesPerMinute = policy.maxPerMinute
+    ? Math.min(settings.messagesPerMinute, policy.maxPerMinute)
+    : settings.messagesPerMinute;
 
   const template = await prisma.customTemplate.findFirst({
     where: { id: job.templateId, clientId },
@@ -377,7 +404,7 @@ export async function retryQueueJob(jobId: string, clientId: string, origin: str
       name: c.name,
     })),
     buildPayload,
-    settings.messagesPerMinute,
+    messagesPerMinute,
     {
       clientId,
       queueJobId: job.id,
@@ -402,5 +429,5 @@ export async function retryQueueJob(jobId: string, clientId: string, origin: str
     },
   });
 
-  return true;
+  return { ok: true };
 }
