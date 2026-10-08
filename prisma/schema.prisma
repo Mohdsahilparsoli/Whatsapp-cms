@@ -78,6 +78,7 @@ model Client {
   whatsappAccount WhatsAppAccount?
   additionalNumbers AdditionalWhatsAppNumber[]
   apiKeys           ApiKey[]
+  paymentRequests   PaymentRequest[]
   otpRequests       OtpRequest[]
   contactLists ContactList[]
   conversations Conversation[]
@@ -460,6 +461,10 @@ model WhatsAppAccount {
   /// qualityRating; see lib/sendPolicy.ts for how both gate real sends.
   messagingTier String?
   qualityCheckedAt DateTime?
+  /// WhatsApp Payments (India): the gateway ("razorpay" | "payu") and the
+  /// payment-configuration name created in WhatsApp Manager that orders use.
+  paymentGateway    String?
+  paymentConfigName String?
   /// AES-256-GCM ciphertext (base64: iv.authTag.ciphertext) — see
   /// lib/crypto.ts. Never stored or returned in plain text.
   accessTokenEnc String?
@@ -666,4 +671,32 @@ model OtpRequest {
 
   @@index([clientId, phone])
   @@map("otp_requests")
+}
+
+/// A WhatsApp "order_details" payment request sent to a customer (India
+/// Payments API). `status` follows Meta's payment webhooks (pending →
+/// captured | failed); `orderStatus` is what we last told the customer via
+/// an order_status message (processing | shipped | completed | canceled).
+model PaymentRequest {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  referenceId   String  @unique
+  customerPhone String
+  customerName  String?
+  amountPaise   Int
+  currency      String  @default("INR")
+  items         Json    @default("[]")
+
+  status      String    @default("pending")
+  orderStatus String?
+  whatsappMessageId String?
+  paidAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, createdAt])
+  @@map("payment_requests")
 }

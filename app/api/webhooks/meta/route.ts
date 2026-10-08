@@ -28,9 +28,12 @@ export async function GET(request: Request) {
 
 interface StatusEntry {
   id: string;
-  status: "sent" | "delivered" | "read" | "failed";
+  status: "sent" | "delivered" | "read" | "failed" | "captured" | "pending";
   timestamp?: string;
   errors?: { title?: string; message?: string }[];
+  /** "payment" for WhatsApp Payments updates (India). */
+  type?: string;
+  payment?: { reference_id?: string; amount?: { value?: number; offset?: number }; currency?: string };
 }
 
 interface IncomingMessage {
@@ -622,7 +625,59 @@ async function applyTemplateStatusUpdate(value: TemplateStatusValue) {
   });
 }
 
+/**
+ * WhatsApp Payments (India): Meta reports a customer's payment as a status of
+ * type "payment" (pending → captured | failed). Matched to our PaymentRequest
+ * by reference_id, and a short note is added to the chat so the agent sees it.
+ * (Meta advises confirming against your gateway before shipping — this is the
+ * signal, the gateway is the ledger.)
+ */
+async function applyPaymentStatus(status: StatusEntry) {
+  const referenceId = status.payment?.reference_id;
+  if (!referenceId) return;
+  const request = await prisma.paymentRequest.findUnique({ where: { referenceId } });
+  if (!request) return;
+
+  const next = status.status === "captured" ? "captured" : status.status === "failed" ? "failed" : "pending";
+  if (request.status === next || request.status === "captured") return; // duplicate / already settled
+
+  const when = status.timestamp ? new Date(Number(status.timestamp) * 1000) : new Date();
+  await prisma.paymentRequest.update({
+    where: { id: request.id },
+    data: { status: next, ...(next === "captured" ? { paidAt: when } : {}) },
+  });
+
+  if (next === "pending") return;
+  const rupees = (request.amountPaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const conversation = await prisma.conversation.findUnique({
+    where: { clientId_contactPhone: { clientId: request.clientId, contactPhone: request.customerPhone } },
+  });
+  if (!conversation) return;
+  await prisma.chatMessage.create({
+    data: {
+      conversationId: conversation.id,
+      clientId: request.clientId,
+      direction: "inbound",
+      type: "text",
+      text:
+        next === "captured"
+          ? `✅ Payment received — ₹${rupees}\nOrder ${request.referenceId}`
+          : `❌ Payment failed — ₹${rupees}\nOrder ${request.referenceId}`,
+      status: "sent",
+      createdAt: when,
+    },
+  });
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: when, unreadCount: { increment: 1 } },
+  });
+}
+
 async function applyStatus(status: StatusEntry) {
+  if (status.type === "payment") {
+    await applyPaymentStatus(status);
+    return;
+  }
   const record = await prisma.messageRecord.findUnique({ where: { whatsappMessageId: status.id } });
   if (record) {
     const when = status.timestamp ? new Date(Number(status.timestamp) * 1000) : new Date();

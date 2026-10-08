@@ -152,7 +152,11 @@ function InboxPageInner() {
   const [listRows, setListRows] = useState<string[]>(["", ""]);
   // Catalog products + WhatsApp Flows composer (loaded from Meta on open).
   const [richOpen, setRichOpen] = useState(false);
-  const [richTab, setRichTab] = useState<"products" | "flows" | "contact">("products");
+  const [richTab, setRichTab] = useState<"products" | "flows" | "contact" | "payment">("products");
+  const [payItems, setPayItems] = useState([{ name: "", price: "", quantity: "1" }]);
+  const [payTax, setPayTax] = useState("");
+  const [payShipping, setPayShipping] = useState("");
+  const [payDiscount, setPayDiscount] = useState("");
   const [cardName, setCardName] = useState("");
   const [cardPhone, setCardPhone] = useState("");
   const [blocked, setBlocked] = useState(false);
@@ -544,7 +548,7 @@ function InboxPageInner() {
     return () => clearInterval(t);
   }, []);
 
-  async function loadRichData(tab: "products" | "flows" | "contact") {
+  async function loadRichData(tab: "products" | "flows" | "contact" | "payment") {
     if (tab === "products" && !catalog && !catalogLoading) {
       setCatalogLoading(true);
       setCatalogError(null);
@@ -583,7 +587,7 @@ function InboxPageInner() {
     if (next) loadRichData(richTab);
   }
 
-  function switchRichTab(tab: "products" | "flows" | "contact") {
+  function switchRichTab(tab: "products" | "flows" | "contact" | "payment") {
     setRichTab(tab);
     loadRichData(tab);
   }
@@ -613,6 +617,42 @@ function InboxPageInner() {
       }
       setDraft("");
       setSelectedProducts([]);
+      setRichOpen(false);
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendPayment() {
+    const text = draft.trim();
+    if (!text || !active) return;
+    setSendError(null);
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/send-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: active.contactPhone,
+          name: active.contactName,
+          message: text,
+          items: payItems,
+          tax: payTax,
+          shipping: payShipping,
+          discount: payDiscount,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error ?? "Could not send the payment request.");
+        return;
+      }
+      setDraft("");
+      setPayItems([{ name: "", price: "", quantity: "1" }]);
+      setPayTax("");
+      setPayShipping("");
+      setPayDiscount("");
       setRichOpen(false);
       await Promise.all([loadActiveMessages(active.id), loadConversations()]);
     } finally {
@@ -1475,7 +1515,7 @@ function InboxPageInner() {
                   <div className="shrink-0 space-y-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs">
                     <div className="flex items-center justify-between">
                       <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-                        {(["products", "flows", "contact"] as const).map((t) => (
+                        {(["products", "flows", "contact", "payment"] as const).map((t) => (
                           <button
                             key={t}
                             type="button"
@@ -1484,7 +1524,7 @@ function InboxPageInner() {
                               richTab === t ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
                             }`}
                           >
-                            {t === "products" ? "Catalog products" : t === "flows" ? "WhatsApp Flow" : "Contact card"}
+                            {t === "products" ? "Catalog products" : t === "flows" ? "WhatsApp Flow" : t === "contact" ? "Contact card" : "Payment request"}
                           </button>
                         ))}
                       </div>
@@ -1502,7 +1542,65 @@ function InboxPageInner() {
                       <p className="text-slate-500">The text in the reply box below is the message shown with it.</p>
                     )}
 
-                    {richTab === "contact" ? (
+                    {richTab === "payment" ? (
+                      <div className="space-y-2">
+                        {payItems.map((item, i) => (
+                          <div key={i} className="flex flex-wrap items-center gap-2">
+                            <input
+                              value={item.name}
+                              onChange={(e) => setPayItems((p) => p.map((x, xi) => (xi === i ? { ...x, name: e.target.value } : x)))}
+                              placeholder="Item name"
+                              className="h-8 w-48 rounded-lg border border-slate-300 bg-white px-2.5 text-xs"
+                            />
+                            <input
+                              value={item.price}
+                              onChange={(e) => setPayItems((p) => p.map((x, xi) => (xi === i ? { ...x, price: e.target.value } : x)))}
+                              placeholder="Price ₹"
+                              inputMode="decimal"
+                              className="h-8 w-24 rounded-lg border border-slate-300 bg-white px-2.5 text-xs"
+                            />
+                            <input
+                              value={item.quantity}
+                              onChange={(e) => setPayItems((p) => p.map((x, xi) => (xi === i ? { ...x, quantity: e.target.value } : x)))}
+                              placeholder="Qty"
+                              inputMode="numeric"
+                              className="h-8 w-16 rounded-lg border border-slate-300 bg-white px-2.5 text-xs"
+                            />
+                            {payItems.length > 1 && (
+                              <button
+                                type="button"
+                                aria-label="Remove item"
+                                onClick={() => setPayItems((p) => p.filter((_, xi) => xi !== i))}
+                                className="rounded-full p-1 text-slate-400 hover:bg-slate-200"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setPayItems((p) => [...p, { name: "", price: "", quantity: "1" }])}
+                            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            + Add item
+                          </button>
+                          <input value={payTax} onChange={(e) => setPayTax(e.target.value)} placeholder="Tax ₹" inputMode="decimal" className="h-8 w-20 rounded-lg border border-slate-300 bg-white px-2.5 text-xs" />
+                          <input value={payShipping} onChange={(e) => setPayShipping(e.target.value)} placeholder="Shipping ₹" inputMode="decimal" className="h-8 w-24 rounded-lg border border-slate-300 bg-white px-2.5 text-xs" />
+                          <input value={payDiscount} onChange={(e) => setPayDiscount(e.target.value)} placeholder="Discount ₹" inputMode="decimal" className="h-8 w-24 rounded-lg border border-slate-300 bg-white px-2.5 text-xs" />
+                          <Button
+                            type="button"
+                            variant="primary"
+                            onClick={sendPayment}
+                            disabled={!draft.trim() || sending || payItems.some((it) => !it.name.trim() || !it.price.trim())}
+                          >
+                            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            Send payment request
+                          </Button>
+                        </div>
+                      </div>
+                    ) : richTab === "contact" ? (
                       <div className="flex flex-wrap items-end gap-2">
                         <input
                           value={cardName}

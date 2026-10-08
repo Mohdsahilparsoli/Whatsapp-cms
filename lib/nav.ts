@@ -5,6 +5,7 @@ import {
   CheckSquare,
   CreditCard,
   FileText,
+  IndianRupee,
   Inbox,
   LayoutDashboard,
   ListChecks,
@@ -43,6 +44,7 @@ export const clientAdminNav: NavItem[] = [
   { label: "Message Status", href: "/message-status", icon: CheckSquare },
   { label: "Reports & Analytics", href: "/reports", icon: BarChart3 },
   { label: "WhatsApp Inbox", href: "/inbox", icon: Inbox },
+  { label: "Payments", href: "/payments", icon: IndianRupee },
   { label: "Consent & Opt-out", href: "/consent", icon: CalendarClock },
   { label: "Subscription", href: "/subscriptions", icon: CreditCard },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -138,6 +140,12 @@ export const pageMeta: Record<string, PageMeta> = {
     breadcrumb: [{ label: "Message Status" }],
     navHref: "/message-status",
   },
+  "/payments": {
+    title: "Payments",
+    description: "WhatsApp UPI payment requests and their status.",
+    breadcrumb: [{ label: "Payments" }],
+    navHref: "/payments",
+  },
   "/reports": {
     title: "Reports & Analytics",
     description: "Delivery and engagement trends over time.",
@@ -226,6 +234,7 @@ export const paidFeaturePaths = [
   "/message-status",
   "/reports",
   "/inbox",
+  "/payments",
   "/consent",
 ];
 
