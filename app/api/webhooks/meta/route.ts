@@ -42,6 +42,8 @@ interface IncomingMessage {
   image?: { id: string; caption?: string };
   document?: { id: string; caption?: string; filename?: string };
   video?: { id: string; caption?: string };
+  /** A sticker (always a .webp image, possibly animated). */
+  sticker?: { id: string; animated?: boolean };
   /** Voice note (voice: true) or an audio file the customer sent. */
   audio?: { id: string; voice?: boolean };
   /** A pin the customer shared from WhatsApp's attach → Location. */
@@ -415,6 +417,17 @@ async function recordIncomingMessage(
         "document",
         phoneNumberId
       );
+      if (downloaded) {
+        mediaUrl = downloaded.url;
+        mediaFileName = downloaded.fileName;
+      }
+    }
+  } else if (message.type === "sticker") {
+    // Stickers are webp images, so they're stored and shown as images.
+    type = "image";
+    text = "🏷️ Sticker";
+    if (message.sticker?.id) {
+      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.sticker.id, undefined, "image", phoneNumberId);
       if (downloaded) {
         mediaUrl = downloaded.url;
         mediaFileName = downloaded.fileName;

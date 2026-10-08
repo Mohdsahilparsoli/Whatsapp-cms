@@ -20,6 +20,7 @@ import {
   Paperclip,
   Search,
   Send,
+  Smile,
   SmilePlus,
   Trash2,
   X,
@@ -174,6 +175,7 @@ function InboxPageInner() {
   // Ticks every 30s so the 24h-window countdown stays current on its own.
   const [nowTick, setNowTick] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const stickerInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   // Throttles the real "typing…" indicator shown on the customer's own
@@ -822,6 +824,46 @@ function InboxPageInner() {
       await Promise.all([loadActiveMessages(active.id), loadConversations()]);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleStickerPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !active) return;
+    if (!file.name.toLowerCase().endsWith(".webp")) {
+      setSendError("Stickers must be .webp files (512×512, under 100KB for static).");
+      return;
+    }
+    setSendError(null);
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch("/api/whatsapp/upload", { method: "POST", body: formData });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        setSendError(uploadData.error ?? "Could not upload the sticker.");
+        return;
+      }
+      const sendRes = await fetch("/api/whatsapp/send-sticker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: active.contactPhone,
+          name: active.contactName,
+          mediaUrl: uploadData.url,
+          fileName: uploadData.fileName,
+        }),
+      });
+      const sendData = await sendRes.json();
+      if (!sendRes.ok) {
+        setSendError(sendData.error ?? "Could not send the sticker.");
+        return;
+      }
+      await Promise.all([loadActiveMessages(active.id), loadConversations()]);
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -1766,6 +1808,22 @@ function InboxPageInner() {
                     disabled={active.consent === "opted_out" || uploading || windowClosed}
                   >
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                  </Button>
+                  <input
+                    ref={stickerInputRef}
+                    type="file"
+                    accept="image/webp,.webp"
+                    onChange={handleStickerPick}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    aria-label="Send a sticker"
+                    title="Send a sticker (.webp)"
+                    onClick={() => stickerInputRef.current?.click()}
+                    disabled={active.consent === "opted_out" || uploading || windowClosed}
+                  >
+                    <Smile className="h-4 w-4" />
                   </Button>
                   <Button
                     type="button"

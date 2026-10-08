@@ -27,6 +27,8 @@ export async function sendAndRecordInboxMessage(params: {
   preview: string;
   /** What to show in the Inbox thread for this message. */
   displayText: string;
+  /** Media shown in the thread instead of a plain text bubble. */
+  chatMedia?: { type: "image" | "video" | "document" | "audio"; url: string; fileName?: string | null };
 }): Promise<InboxSendResult> {
   const primary = await getWhatsAppCredentials(params.clientId);
   if (!primary) {
@@ -99,8 +101,10 @@ export async function sendAndRecordInboxMessage(params: {
       conversationId: conversation.id,
       clientId: params.clientId,
       direction: "outbound",
-      type: "text",
+      type: params.chatMedia?.type ?? "text",
       text: params.displayText,
+      mediaUrl: params.chatMedia?.url ?? null,
+      mediaFileName: params.chatMedia?.fileName ?? null,
       whatsappMessageId,
       status: "sent",
     },
