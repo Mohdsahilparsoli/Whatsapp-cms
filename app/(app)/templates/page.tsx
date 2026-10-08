@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CloudUpload, FileText, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CloudDownload, CloudUpload, FileText, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -54,6 +54,37 @@ export default function TemplatesPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const [metaActionId, setMetaActionId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  // Pulls every template from the client's WhatsApp Business Account on
+  // Meta (including ones made in Meta's own Business Manager) — see
+  // lib/metaTemplateSync.ts for exactly what's imported vs skipped.
+  async function handleSyncFromMeta() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/templates/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast(data.error ?? "Could not sync templates from Meta.");
+        return;
+      }
+      refresh();
+      const skipped: { name: string; reason: string }[] = data.skipped ?? [];
+      setToast(
+        `Synced from Meta — ${data.imported} new, ${data.updated} updated` +
+          (skipped.length > 0
+            ? `, ${skipped.length} skipped (${skipped
+                .slice(0, 3)
+                .map((x) => `${x.name}: ${x.reason}`)
+                .join("; ")}${skipped.length > 3 ? "; …" : ""}).`
+            : ".")
+      );
+    } catch {
+      setToast("Could not reach the server to sync templates.");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -222,6 +253,10 @@ export default function TemplatesPage() {
             <Button onClick={refresh} disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               {loading ? "Refreshing…" : "Refresh templates"}
+            </Button>
+            <Button onClick={handleSyncFromMeta} disabled={syncing}>
+              {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
+              {syncing ? "Syncing…" : "Sync from Meta"}
             </Button>
             <Button variant="primary" onClick={openCreate}>
               <Plus className="h-4 w-4" /> Create Custom Template
