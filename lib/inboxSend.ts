@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
-import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { getWhatsAppCredentials, getCredentialsForRecipient } from "@/lib/whatsappCredentials";
 import { normalizePhone } from "@/lib/phone";
 import { getConversationWindow } from "@/lib/sessionWindowServer";
 import { SESSION_CLOSED_MESSAGE } from "@/lib/sessionWindow";
@@ -28,8 +28,8 @@ export async function sendAndRecordInboxMessage(params: {
   /** What to show in the Inbox thread for this message. */
   displayText: string;
 }): Promise<InboxSendResult> {
-  const credentials = await getWhatsAppCredentials(params.clientId);
-  if (!credentials) {
+  const primary = await getWhatsAppCredentials(params.clientId);
+  if (!primary) {
     return { ok: false, status: 500, error: "No WhatsApp number available. Connect one in WhatsApp Account Setup." };
   }
 
@@ -38,6 +38,7 @@ export async function sendAndRecordInboxMessage(params: {
     return { ok: false, status: 400, error: "Enter a valid recipient phone number (with country code)." };
   }
   const to = normalizePhone(digits);
+  const credentials = (await getCredentialsForRecipient(params.clientId, to)) ?? primary;
 
   if (!(await getConversationWindow(params.clientId, to)).open) {
     return { ok: false, status: 409, error: SESSION_CLOSED_MESSAGE, code: "session_closed" };

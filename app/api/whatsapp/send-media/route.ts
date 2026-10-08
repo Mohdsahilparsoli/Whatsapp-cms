@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
-import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { getWhatsAppCredentials, getCredentialsForRecipient } from "@/lib/whatsappCredentials";
 import { normalizePhone } from "@/lib/phone";
 import { getConversationWindow } from "@/lib/sessionWindowServer";
 import { SESSION_CLOSED_MESSAGE } from "@/lib/sessionWindow";
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-  const { phoneNumberId, accessToken } = credentials;
+  let { phoneNumberId, accessToken } = credentials;
 
   let body: {
     to?: string;
@@ -57,6 +57,9 @@ export async function POST(request: Request) {
   // Same canonical form as everywhere else a Conversation is written — see
   // lib/phone.ts and the identical note in send-test/route.ts.
   const to = normalizePhone(rawDigits);
+  // Multi-number: answer from the line this customer wrote to.
+  const lineCredentials = await getCredentialsForRecipient(auth.clientId, to);
+  if (lineCredentials) ({ phoneNumberId, accessToken } = lineCredentials);
   if (!mediaUrl || (mediaKind !== "image" && mediaKind !== "document" && mediaKind !== "audio")) {
     return NextResponse.json({ error: "Upload a file first." }, { status: 400 });
   }

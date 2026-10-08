@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
-import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { getWhatsAppCredentials, getCredentialsForRecipient } from "@/lib/whatsappCredentials";
 import { normalizePhone } from "@/lib/phone";
 import { getConversationWindow } from "@/lib/sessionWindowServer";
 import { SESSION_CLOSED_MESSAGE } from "@/lib/sessionWindow";
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-  const { phoneNumberId, accessToken } = credentials;
+  let { phoneNumberId, accessToken } = credentials;
 
   let body: {
     to?: string;
@@ -44,6 +44,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a valid recipient phone number (with country code)." }, { status: 400 });
   }
   const to = normalizePhone(rawDigits);
+  // Multi-number: answer from the line this customer wrote to.
+  const lineCredentials = await getCredentialsForRecipient(auth.clientId, to);
+  if (lineCredentials) ({ phoneNumberId, accessToken } = lineCredentials);
 
   const latitude = Number(body.latitude);
   const longitude = Number(body.longitude);

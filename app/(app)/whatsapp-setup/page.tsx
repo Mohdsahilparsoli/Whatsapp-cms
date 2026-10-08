@@ -10,6 +10,7 @@ import FormField from "@/components/ui/FormField";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import LoadingState from "@/components/ui/LoadingState";
+import ExtraNumbersCard from "@/components/whatsapp/ExtraNumbersCard";
 import { formatDateTime } from "@/lib/utils";
 
 declare global {
@@ -378,6 +379,8 @@ export default function WhatsAppSetupPage() {
           </Card>
         </div>
       )}
+
+      {connected && <ExtraNumbersCard />}
 
       {/* Manual entry */}
       <Modal

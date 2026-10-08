@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireClient } from "@/lib/apiGuards";
 import { prisma } from "@/lib/db";
-import { getWhatsAppCredentials } from "@/lib/whatsappCredentials";
+import { getWhatsAppCredentials, getCredentialsForRecipient } from "@/lib/whatsappCredentials";
 import { normalizePhone } from "@/lib/phone";
 import { getConversationWindow } from "@/lib/sessionWindowServer";
 import { SESSION_CLOSED_MESSAGE } from "@/lib/sessionWindow";
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-  const { phoneNumberId, accessToken } = credentials;
+  let { phoneNumberId, accessToken } = credentials;
 
   let body: { to?: string; message?: string; name?: string; replyToId?: string };
   try {
@@ -53,6 +53,9 @@ export async function POST(request: Request) {
   // Inbox thread as a campaign send or the customer's own messages to the
   // same number instead of splitting into a second chat — see lib/phone.ts.
   const to = normalizePhone(rawDigits);
+  // Multi-number: answer from the line this customer wrote to.
+  const lineCredentials = await getCredentialsForRecipient(auth.clientId, to);
+  if (lineCredentials) ({ phoneNumberId, accessToken } = lineCredentials);
   if (!message) {
     return NextResponse.json({ error: "Enter a message." }, { status: 400 });
   }

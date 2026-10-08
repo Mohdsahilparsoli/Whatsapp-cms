@@ -24,7 +24,7 @@ export async function POST(_request: Request, { params }: Params) {
     orderBy: { createdAt: "desc" },
   });
   if (lastInbound?.whatsappMessageId) {
-    const credentials = await getWhatsAppCredentials(auth.clientId);
+    const credentials = await getWhatsAppCredentials(auth.clientId, existing.phoneNumberId);
     if (credentials) {
       fetch(`https://graph.facebook.com/v25.0/${credentials.phoneNumberId}/messages`, {
         method: "POST",

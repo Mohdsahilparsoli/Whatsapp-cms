@@ -23,7 +23,30 @@ export interface WhatsAppCredentials {
  * real account in WhatsApp Account Setup actually takes effect everywhere
  * at once.
  */
-export async function getWhatsAppCredentials(clientId: string): Promise<WhatsAppCredentials | null> {
+export async function getWhatsAppCredentials(
+  clientId: string,
+  /** Use this specific one of the client's numbers (an extra number's id, or
+   * the primary's). Unknown / omitted → the primary number. */
+  requestedPhoneNumberId?: string | null
+): Promise<WhatsAppCredentials | null> {
+  if (requestedPhoneNumberId) {
+    const extra = await prisma.additionalWhatsAppNumber.findFirst({
+      where: { clientId, phoneNumberId: requestedPhoneNumberId },
+    });
+    if (extra) {
+      try {
+        return {
+          phoneNumberId: extra.phoneNumberId,
+          accessToken: decryptSecret(extra.accessTokenEnc),
+          wabaId: extra.wabaId,
+          source: "client",
+        };
+      } catch {
+        // fall through to the primary number
+      }
+    }
+  }
+
   const account = await prisma.whatsAppAccount.findUnique({ where: { clientId } });
 
   if (account?.connected && account.phoneNumberId && account.accessTokenEnc) {
@@ -53,4 +76,16 @@ export async function getWhatsAppCredentials(clientId: string): Promise<WhatsApp
   }
 
   return null;
+}
+
+/**
+ * Credentials for replying to one specific customer: the number that
+ * customer last wrote to (Conversation.phoneNumberId), else the primary.
+ */
+export async function getCredentialsForRecipient(clientId: string, contactPhone: string): Promise<WhatsAppCredentials | null> {
+  const conversation = await prisma.conversation.findUnique({
+    where: { clientId_contactPhone: { clientId, contactPhone } },
+    select: { phoneNumberId: true },
+  });
+  return getWhatsAppCredentials(clientId, conversation?.phoneNumberId);
 }

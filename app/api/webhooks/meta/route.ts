@@ -138,7 +138,7 @@ export async function POST(request: Request) {
           if (clientId) {
             const senderName = messagesValue.contacts?.[0]?.profile?.name ?? null;
             for (const message of messagesValue.messages) {
-              await recordIncomingMessage(clientId, senderName, message);
+              await recordIncomingMessage(clientId, senderName, message, phoneNumberId);
             }
           }
           // No matching client — see the multi-tenant note above. Nothing
@@ -193,10 +193,11 @@ async function downloadAndStoreIncomingMedia(
   clientId: string,
   mediaId: string,
   fileNameHint: string | undefined,
-  kind: "image" | "document" | "video" | "audio"
+  kind: "image" | "document" | "video" | "audio",
+  phoneNumberId?: string
 ): Promise<{ url: string; fileName: string } | null> {
   try {
-    const credentials = await getWhatsAppCredentials(clientId);
+    const credentials = await getWhatsAppCredentials(clientId, phoneNumberId);
     if (!credentials) {
       console.error(`[incoming-media] no WhatsApp credentials found for client ${clientId}`);
       return null;
@@ -284,10 +285,21 @@ async function resolveClientId(phoneNumberId: string): Promise<string | null> {
     where: { phoneNumberId, connected: true },
     select: { clientId: true },
   });
-  return account?.clientId ?? null;
+  if (account) return account.clientId;
+  // Multi-number: an additional number belonging to some client.
+  const extra = await prisma.additionalWhatsAppNumber.findUnique({
+    where: { phoneNumberId },
+    select: { clientId: true },
+  });
+  return extra?.clientId ?? null;
 }
 
-async function recordIncomingMessage(clientId: string, senderName: string | null, message: IncomingMessage) {
+async function recordIncomingMessage(
+  clientId: string,
+  senderName: string | null,
+  message: IncomingMessage,
+  phoneNumberId?: string
+) {
   // Meta already sends this with a country code (no "+"), but normalized
   // anyway so it's always byte-identical to whatever a campaign send or a
   // manual reply wrote for this same person — see lib/phone.ts.
@@ -313,7 +325,7 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
   } else if (message.type === "audio") {
     type = "audio";
     if (message.audio?.id) {
-      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.audio.id, undefined, "audio");
+      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.audio.id, undefined, "audio", phoneNumberId);
       if (downloaded) {
         mediaUrl = downloaded.url;
         mediaFileName = downloaded.fileName;
@@ -335,7 +347,7 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
     type = "image";
     text = message.image?.caption ?? "";
     if (message.image?.id) {
-      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.image.id, undefined, "image");
+      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.image.id, undefined, "image", phoneNumberId);
       if (downloaded) {
         mediaUrl = downloaded.url;
         mediaFileName = downloaded.fileName;
@@ -349,7 +361,8 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
         clientId,
         message.document.id,
         message.document.filename,
-        "document"
+        "document",
+        phoneNumberId
       );
       if (downloaded) {
         mediaUrl = downloaded.url;
@@ -360,7 +373,7 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
     type = "video";
     text = message.video?.caption ?? "";
     if (message.video?.id) {
-      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.video.id, undefined, "video");
+      const downloaded = await downloadAndStoreIncomingMedia(clientId, message.video.id, undefined, "video", phoneNumberId);
       if (downloaded) {
         mediaUrl = downloaded.url;
         mediaFileName = downloaded.fileName;
@@ -387,6 +400,8 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
       contactName: senderName ?? undefined,
       lastMessageAt: when,
       unreadCount: { increment: 1 },
+      // Remember which of the client's numbers this customer wrote to.
+      ...(phoneNumberId ? { phoneNumberId } : {}),
     },
     create: {
       clientId,
@@ -394,6 +409,7 @@ async function recordIncomingMessage(clientId: string, senderName: string | null
       contactName: senderName,
       lastMessageAt: when,
       unreadCount: 1,
+      phoneNumberId: phoneNumberId ?? null,
     },
   });
 

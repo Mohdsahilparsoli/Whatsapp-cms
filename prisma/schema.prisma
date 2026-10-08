@@ -76,6 +76,7 @@ model Client {
   queueJobs QueueJob[]
   messageRecords MessageRecord[]
   whatsappAccount WhatsAppAccount?
+  additionalNumbers AdditionalWhatsAppNumber[]
   contactLists ContactList[]
   conversations Conversation[]
 
@@ -453,7 +454,34 @@ model WhatsAppAccount {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  extraNumbers AdditionalWhatsAppNumber[]
+
   @@map("whatsapp_accounts")
+}
+
+/// A client's 2nd, 3rd… WhatsApp number. The first/primary number stays on
+/// WhatsAppAccount (checklist, default for campaigns, shared fallback); every
+/// extra number lives here with its own phone-number id + token. Conversations
+/// remember which number the customer wrote to (Conversation.phoneNumberId) so
+/// replies go back out from the same number.
+model AdditionalWhatsAppNumber {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  accountId String
+  account   WhatsAppAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  label         String?
+  wabaId        String
+  phoneNumberId String   @unique
+  displayNumber String?
+  businessName  String?
+  qualityRating String?
+  accessTokenEnc String
+  createdAt DateTime @default(now())
+
+  @@index([clientId])
+  @@map("whatsapp_additional_numbers")
 }
 
 /// A saved, named audience — real, but simple by design: a list is just a
@@ -489,6 +517,10 @@ model Conversation {
   contactName  String?
   unreadCount  Int      @default(0)
   lastMessageAt DateTime @default(now())
+  /// The WhatsApp phone-number id this customer last wrote to (or we last
+  /// sent from) — replies reuse it so a multi-number client answers from the
+  /// right line. Null = the client's primary number.
+  phoneNumberId String?
 
   messages ChatMessage[]
 

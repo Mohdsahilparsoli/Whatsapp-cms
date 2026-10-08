@@ -38,7 +38,7 @@ export async function POST(_request: Request, { params }: Params) {
     return NextResponse.json({ ok: false, reason: "No customer message to show typing under yet." });
   }
 
-  const credentials = await getWhatsAppCredentials(auth.clientId);
+  const credentials = await getWhatsAppCredentials(auth.clientId, conversation.phoneNumberId);
   if (!credentials) {
     return NextResponse.json({ ok: false, reason: "No WhatsApp number connected." });
   }
