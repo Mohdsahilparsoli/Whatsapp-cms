@@ -12,6 +12,7 @@ import FilterDropdown from "@/components/ui/FilterDropdown";
 import DateRangeFilter, { type DateRange } from "@/components/ui/DateRangeFilter";
 import StatusBadge from "@/components/ui/StatusBadge";
 import LoadingState from "@/components/ui/LoadingState";
+import MetaAnalyticsCard from "@/components/reports/MetaAnalyticsCard";
 import { useAuth } from "@/lib/auth";
 import { downloadCsv, formatNumber, percent } from "@/lib/utils";
 import type { CampaignPerfRow } from "@/lib/reportsAggregate";
@@ -269,6 +270,8 @@ export default function ReportsPage() {
           )}
         </>
       )}
+
+      {!isSuperAdmin && <MetaAnalyticsCard />}
     </div>
   );
 }
