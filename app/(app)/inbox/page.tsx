@@ -47,6 +47,8 @@ interface ConversationSummary {
   tags: string[];
 }
 
+const OPT_OUT_KEYWORDS = new Set(["stop", "unsubscribe", "cancel", "end", "quit", "optout", "opt out", "stop all"]);
+
 interface RealMessage {
   id: string;
   direction: "inbound" | "outbound";
@@ -440,6 +442,14 @@ function InboxPageInner() {
     return null;
   }, [activeMessages]);
   const sessionWindow = getSessionWindow(lastInboundAt, nowTick);
+  // An opted-out contact only blocks marketing. If they have just written to
+  // us (inside the 24h window) a reply is a service message and is fine —
+  // unless that message itself was an opt-out keyword like STOP.
+  const lastInboundMessage = [...activeMessages].reverse().find((m) => m.direction === "inbound");
+  const lastInboundText = (lastInboundMessage?.text ?? "").trim().toLowerCase();
+  const optOutBlocked =
+    active?.consent === "opted_out" &&
+    (OPT_OUT_KEYWORDS.has(lastInboundText) || lastInboundAt === null);
   // Don't flash "closed" while a freshly opened chat's messages are loading.
   const windowClosed = Boolean(active) && !messagesLoading && !sessionWindow.open;
   const windowClosingSoon = !windowClosed && !messagesLoading && sessionWindow.open && sessionWindow.msLeft < 4 * 60 * 60 * 1000;
@@ -1903,7 +1913,7 @@ function InboxPageInner() {
                     type="button"
                     aria-label="Attach a photo or document"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={active.consent === "opted_out" || uploading || windowClosed}
+                    disabled={optOutBlocked || uploading || windowClosed}
                   >
                     {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                   </Button>
@@ -1919,7 +1929,7 @@ function InboxPageInner() {
                     aria-label="Send a sticker"
                     title="Send a sticker (.webp)"
                     onClick={() => stickerInputRef.current?.click()}
-                    disabled={active.consent === "opted_out" || uploading || windowClosed}
+                    disabled={optOutBlocked || uploading || windowClosed}
                   >
                     <Smile className="h-4 w-4" />
                   </Button>
@@ -1932,7 +1942,7 @@ function InboxPageInner() {
                       setRichOpen(false);
                       setInteractiveOpen((o) => !o);
                     }}
-                    disabled={active.consent === "opted_out" || windowClosed}
+                    disabled={optOutBlocked || windowClosed}
                   >
                     <ListChecks className="h-4 w-4" />
                   </Button>
@@ -1945,7 +1955,7 @@ function InboxPageInner() {
                       setRichOpen(false);
                       setLocationOpen((o) => !o);
                     }}
-                    disabled={active.consent === "opted_out" || windowClosed}
+                    disabled={optOutBlocked || windowClosed}
                   >
                     <MapPin className="h-4 w-4" />
                   </Button>
@@ -1954,7 +1964,7 @@ function InboxPageInner() {
                     aria-label="Send catalog products or a WhatsApp Flow"
                     title="Catalog products / WhatsApp Flow"
                     onClick={toggleRichPanel}
-                    disabled={active.consent === "opted_out" || windowClosed}
+                    disabled={optOutBlocked || windowClosed}
                   >
                     <ShoppingBag className="h-4 w-4" />
                   </Button>
@@ -1963,19 +1973,19 @@ function InboxPageInner() {
                     onChange={(e) => handleDraftChange(e.target.value)}
                     aria-label="Type a reply"
                     placeholder={
-                      active.consent === "opted_out"
-                        ? "This contact opted out of messages"
+                      optOutBlocked
+                        ? "This contact asked to stop messages"
                         : windowClosed
                           ? "24-hour window closed — send a template instead"
                           : "Type a reply"
                     }
-                    disabled={active.consent === "opted_out" || sending || windowClosed}
+                    disabled={optOutBlocked || sending || windowClosed}
                     className="h-10 flex-1 rounded-lg border border-slate-300 px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
                   />
                   <Button
                     type="submit"
                     variant="primary"
-                    disabled={!draft.trim() || active.consent === "opted_out" || sending || windowClosed}
+                    disabled={!draft.trim() || optOutBlocked || sending || windowClosed}
                   >
                     {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     {sending ? "Sending…" : "Send"}
