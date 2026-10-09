@@ -49,9 +49,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ user });
   }
 
-  const client = await prisma.client.findFirst({
+  // Clients can sign in with their User ID or (when it's unique) their email.
+  let client = await prisma.client.findFirst({
     where: { userId: { equals: userId, mode: "insensitive" } },
   });
+  if (!client && userId.includes("@")) {
+    const byEmail = await prisma.client.findMany({
+      where: { email: { equals: userId, mode: "insensitive" } },
+      take: 2,
+    });
+    if (byEmail.length === 1) client = byEmail[0];
+  }
   if (client) {
     const ok = await verifyPassword(password, client.passwordHash);
     if (!ok) {

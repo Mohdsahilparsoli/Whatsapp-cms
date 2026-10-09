@@ -46,3 +46,4 @@ next-env.d.ts
 
 # user-uploaded template media (local disk storage, not version controlled)
 /public/uploads/
+facbookdetails
