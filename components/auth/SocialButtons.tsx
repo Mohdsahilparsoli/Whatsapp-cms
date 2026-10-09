@@ -20,22 +20,21 @@ const items = [
       </svg>
     ),
   },
-  {
-    id: "apple",
-    label: "Apple",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
-        <path fill="#000" d="M16.400 12.600c0-2.400 2-3.500 2.100-3.600-1.100-1.700-2.900-1.900-3.500-1.900-1.500-.2-2.900.9-3.700.9s-1.900-.9-3.200-.8c-1.600 0-3.100 1-4 2.400-1.700 3-.4 7.400 1.200 9.800.8 1.200 1.800 2.500 3 2.400 1.200 0 1.700-.8 3.100-.8s1.900.8 3.200.7c1.300 0 2.200-1.200 3-2.400.9-1.400 1.300-2.700 1.300-2.800 0 0-2.500-1-2.500-3.900ZM14 5.400c.7-.8 1.100-1.900 1-3-1 0-2.100.7-2.800 1.500-.6.700-1.100 1.800-1 2.900 1.100.1 2.100-.6 2.800-1.400Z" />
-      </svg>
-    ),
-  },
 ];
 
-export default function SocialButtons({ verb = "Continue" }: { verb?: "Continue" | "Sign up" }) {
+export default function SocialButtons({
+  providers,
+  verb = "Continue",
+}: {
+  providers: string[];
+  verb?: "Continue" | "Sign up";
+}) {
+  const shown = items.filter((p) => providers.includes(p.id));
+  if (shown.length === 0) return null;
   return (
     <div>
-      <div className="grid grid-cols-3 gap-3">
-        {items.map((p) => (
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(0, 1fr))` }}>
+        {shown.map((p) => (
           <a
             key={p.id}
             href={`/api/auth/oauth/${p.id}`}

@@ -10,7 +10,7 @@ import { TRIAL_DAYS } from "@/data/plans";
 
 type Errors = Partial<Record<"name" | "email" | "phone" | "userId" | "password", string>>;
 
-export default function SignupForm() {
+export default function SignupForm({ providers }: { providers: string[] }) {
   const router = useRouter();
   const { login } = useAuth();
   const [v, setV] = useState({ name: "", email: "", phone: "", userId: "", password: "" });
@@ -74,7 +74,7 @@ export default function SignupForm() {
         </>
       }
     >
-      <SocialButtons verb="Sign up" />
+      <SocialButtons providers={providers} verb="Sign up" />
       <form onSubmit={submit} noValidate className="space-y-4">
         {formError && <ErrorBanner>{formError}</ErrorBanner>}
         <TextField label="Business or full name" autoComplete="organization" value={v.name} onChange={set("name")} error={errors.name} />

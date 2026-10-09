@@ -8,7 +8,7 @@ import AuthShell, { AuthLink } from "@/components/auth/AuthShell";
 import SocialButtons from "@/components/auth/SocialButtons";
 import { ErrorBanner, PasswordField, SubmitButton, TextField } from "@/components/auth/fields";
 
-export default function LoginForm({ initialError = null }: { initialError?: string | null }) {
+export default function LoginForm({ providers, initialError = null }: { providers: string[]; initialError?: string | null }) {
   const router = useRouter();
   const { login, user, ready } = useAuth();
 
@@ -53,7 +53,7 @@ export default function LoginForm({ initialError = null }: { initialError?: stri
         </>
       }
     >
-      <SocialButtons />
+      <SocialButtons providers={providers} />
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
         {formError && <ErrorBanner>{formError}</ErrorBanner>}
         <TextField

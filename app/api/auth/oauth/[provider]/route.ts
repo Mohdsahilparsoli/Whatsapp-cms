@@ -13,14 +13,12 @@ export async function GET(request: Request, ctx: { params: Promise<{ provider: s
   if (!isConfigured(provider)) return back(`oauth_not_configured_${provider}`);
 
   const state = randomBytes(24).toString("hex");
-  const nonce = randomBytes(16).toString("hex");
-  const res = NextResponse.redirect(authorizeUrl(provider, origin, state, nonce));
+  const res = NextResponse.redirect(authorizeUrl(provider, origin, state));
   const prod = process.env.NODE_ENV === "production";
-  // SameSite=None so Apple's cross-site form POST back to us still carries it.
-  res.cookies.set(OAUTH_STATE_COOKIE, JSON.stringify({ state, nonce }), {
+  res.cookies.set(OAUTH_STATE_COOKIE, JSON.stringify({ state }), {
     httpOnly: true,
     secure: prod,
-    sameSite: prod ? "none" : "lax",
+    sameSite: "lax",
     path: "/api/auth/oauth",
     maxAge: 600,
   });

@@ -9,6 +9,5 @@ export const AUTH_ERRORS: Record<string, string> = {
   oauth_unknown: "That sign-in option isn't available.",
   oauth_not_configured_google: "Google sign-in isn't switched on yet. Use your User ID or email for now.",
   oauth_not_configured_facebook: "Facebook sign-in isn't switched on yet. Use your User ID or email for now.",
-  oauth_not_configured_apple: "Apple sign-in isn't switched on yet. Use your User ID or email for now.",
   suspended: "This account has been suspended. Contact support to reactivate it.",
 };

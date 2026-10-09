@@ -11,7 +11,7 @@ import { OAUTH_STATE_COOKIE, fetchProfile, isConfigured, isProvider } from "@/li
 async function complete(
   request: Request,
   providerParam: string,
-  input: { code?: string | null; state?: string | null; error?: string | null; user?: string | null }
+  input: { code?: string | null; state?: string | null; error?: string | null }
 ) {
   const origin = process.env.APP_URL ? getAppOrigin() : new URL(request.url).origin;
   const go = (path: string) => NextResponse.redirect(new URL(path, origin), 303);
@@ -23,7 +23,7 @@ async function complete(
   const store = await cookies();
   const raw = store.get(OAUTH_STATE_COOKIE)?.value;
   store.delete({ name: OAUTH_STATE_COOKIE, path: "/api/auth/oauth" });
-  let saved: { state: string; nonce: string } | null = null;
+  let saved: { state: string } | null = null;
   try {
     saved = raw ? JSON.parse(raw) : null;
   } catch {}
@@ -33,7 +33,7 @@ async function complete(
 
   let profile;
   try {
-    profile = await fetchProfile(provider, input.code, origin, saved.nonce, input.user);
+    profile = await fetchProfile(provider, input.code, origin);
   } catch (err) {
     console.error(`[oauth:${provider}]`, err);
     return fail("oauth_failed");
@@ -84,12 +84,4 @@ export async function GET(request: Request, ctx: { params: Promise<{ provider: s
   const { provider } = await ctx.params;
   const q = new URL(request.url).searchParams;
   return complete(request, provider, { code: q.get("code"), state: q.get("state"), error: q.get("error") });
-}
-
-/** Apple posts the result back as a form. */
-export async function POST(request: Request, ctx: { params: Promise<{ provider: string }> }) {
-  const { provider } = await ctx.params;
-  const f = await request.formData();
-  const s = (k: string) => (typeof f.get(k) === "string" ? (f.get(k) as string) : null);
-  return complete(request, provider, { code: s("code"), state: s("state"), error: s("error"), user: s("user") });
 }
