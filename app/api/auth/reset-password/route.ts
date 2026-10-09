@@ -35,14 +35,25 @@ export async function POST(request: Request) {
   if (claimed.count === 0) {
     return NextResponse.json({ error: "This reset link was already used." }, { status: 400 });
   }
-  await prisma.$transaction([
-    prisma.client.update({ where: { id: row.clientId }, data: { passwordHash } }),
-    // Anyone signed in with the old password is signed out.
-    prisma.session.deleteMany({ where: { clientId: row.clientId } }),
-    prisma.passwordResetToken.updateMany({
-      where: { clientId: row.clientId, usedAt: null },
-      data: { usedAt: new Date() },
-    }),
-  ]);
+  if (row.adminId) {
+    await prisma.$transaction([
+      prisma.adminUser.update({ where: { id: row.adminId }, data: { passwordHash } }),
+      prisma.adminSession.deleteMany({ where: { adminId: row.adminId } }),
+      prisma.passwordResetToken.updateMany({
+        where: { adminId: row.adminId, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+  } else if (row.clientId) {
+    await prisma.$transaction([
+      prisma.client.update({ where: { id: row.clientId }, data: { passwordHash } }),
+      // Anyone signed in with the old password is signed out.
+      prisma.session.deleteMany({ where: { clientId: row.clientId } }),
+      prisma.passwordResetToken.updateMany({
+        where: { clientId: row.clientId, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+  }
   return NextResponse.json({ ok: true });
 }

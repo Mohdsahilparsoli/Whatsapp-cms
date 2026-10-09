@@ -33,13 +33,13 @@ export function renderEmail(c: EmailContent): { html: string; text: string } {
     : "";
 
   const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><title>${esc(c.heading)}</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only"><style>:root{color-scheme:light only;supported-color-schemes:light only;}</style><title>${esc(c.heading)}</title></head>
 <body style="margin:0;padding:0;background:#f4f3ee;">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${esc(c.preheader)}&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f3ee"><tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;">
-<tr><td bgcolor="#050a1a" style="background:#050a1a;border-radius:16px 16px 0 0;padding:28px 36px;">
-<img src="${c.origin}/email/growvika-logo-white.png" alt="GrowVika" width="150" height="25" style="display:block;border:0;outline:none;height:auto;">
+<tr><td bgcolor="#050a1a" style="background:#050a1a;border-radius:16px 16px 0 0;line-height:0;font-size:0;">
+<img src="${c.origin}/email/email-header.png" alt="GrowVika" width="560" height="84" style="display:block;border:0;outline:none;width:100%;max-width:560px;height:auto;background:#050a1a;border-radius:16px 16px 0 0;">
 </td></tr>
 <tr><td bgcolor="#ffffff" style="background:#ffffff;padding:36px 36px 28px;font-family:${font};">
 <h1 style="margin:0 0 16px;font-size:24px;line-height:32px;font-weight:800;color:#0b1124;letter-spacing:-0.3px;">${esc(c.heading)}</h1>

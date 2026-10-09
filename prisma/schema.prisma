@@ -122,7 +122,8 @@ model AdminUser {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sessions AdminSession[]
+  sessions       AdminSession[]
+  passwordResets PasswordResetToken[]
 
   @@map("admin_users")
 }
@@ -706,15 +707,19 @@ model PaymentRequest {
 /// One-time "forgot password" links. Only the SHA-256 of the token is stored,
 /// so a database leak can't be turned into working reset links.
 model PasswordResetToken {
-  id        String    @id @default(cuid())
-  clientId  String
-  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tokenHash String    @unique
+  id        String     @id @default(cuid())
+  /// Exactly one of clientId / adminId is set.
+  clientId  String?
+  client    Client?    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  adminId   String?
+  admin     AdminUser? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  tokenHash String     @unique
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
   @@index([clientId, createdAt])
+  @@index([adminId, createdAt])
   @@map("password_reset_tokens")
 }
 
