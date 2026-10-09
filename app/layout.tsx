@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
-import { Archivo, Plus_Jakarta_Sans } from "next/font/google";
+import { Plus_Jakarta_Sans, Syne } from "next/font/google";
 import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
-// Body/UI text matches the GrowVika website; the wordmark uses Archivo at
-// its widest setting, which is what the logo is drawn in.
+// Body/UI text matches the GrowVika website; the wordmark uses Syne, the
+// same face as the logo on the website.
 const sans = Plus_Jakarta_Sans({
   variable: "--font-inter",
   subsets: ["latin"],
 });
-const brand = Archivo({
+const brand = Syne({
   variable: "--font-brand",
   subsets: ["latin"],
-  axes: ["wdth"],
+  weight: ["800"],
 });
 
 export const metadata: Metadata = {
