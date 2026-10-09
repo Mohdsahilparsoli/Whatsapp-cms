@@ -4,14 +4,43 @@
   --font-sans: var(--font-inter);
 }
 
+/* GrowVika brand: the logo's electric blue replaces the default indigo, and
+   the neutral greys lean towards the logo's deep navy. Every existing
+   indigo and slate class in the CMS picks this up automatically. */
+@theme {
+  --color-indigo-50: #eef1ff;
+  --color-indigo-100: #e0e5ff;
+  --color-indigo-200: #c5ceff;
+  --color-indigo-300: #9eadff;
+  --color-indigo-400: #7188ff;
+  --color-indigo-500: #4a63fa;
+  --color-indigo-600: #3f55f0;
+  --color-indigo-700: #3244d4;
+  --color-indigo-800: #2a37a8;
+  --color-indigo-900: #232d80;
+  --color-indigo-950: #141a4d;
+
+  --color-slate-50: #f6f6f9;
+  --color-slate-100: #eceef4;
+  --color-slate-200: #dfe2eb;
+  --color-slate-300: #c6cad9;
+  --color-slate-400: #8f96ae;
+  --color-slate-500: #667089;
+  --color-slate-600: #4a5370;
+  --color-slate-700: #2f3752;
+  --color-slate-800: #1a2038;
+  --color-slate-900: #0b1124;
+  --color-slate-950: #050a1a;
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  background: #f8fafc;
-  color: #0f172a;
+  background: #f4f3ee;
+  color: #0b1124;
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;

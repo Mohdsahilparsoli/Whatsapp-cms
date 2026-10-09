@@ -35,7 +35,7 @@ export default function ResetForm({ token }: { token: string }) {
   if (!token) {
     return (
       <AuthShell title="Link not valid" footer={<AuthLink href="/forgot-password">Request a new link</AuthLink>}>
-        <p className="text-sm text-[#5b6b66]">This reset link is incomplete. Open the link from your email again, or request a new one.</p>
+        <p className="text-sm text-[#667089]">This reset link is incomplete. Open the link from your email again, or request a new one.</p>
       </AuthShell>
     );
   }
@@ -43,11 +43,11 @@ export default function ResetForm({ token }: { token: string }) {
   if (done) {
     return (
       <AuthShell title="Password updated">
-        <div className="flex gap-3 rounded-xl border border-[#d3dcd8] bg-white p-4 text-sm text-[#24342f]">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#0b7a57]" />
+        <div className="flex gap-3 rounded-xl border border-[#d6d9e5] bg-white p-4 text-sm text-[#2f3752]">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#3f55f0]" />
           <p>Your new password is set. You&apos;ve been signed out everywhere else.</p>
         </div>
-        <a href="/login" className="mt-5 flex h-11 w-full items-center justify-center rounded-lg bg-[#0e3b31] text-[15px] font-semibold text-white hover:bg-[#0a2f27]">
+        <a href="/login" className="mt-5 flex h-11 w-full items-center justify-center rounded-lg bg-[#3f55f0] text-[15px] font-semibold text-white hover:bg-[#3244d4]">
           Sign in
         </a>
       </AuthShell>

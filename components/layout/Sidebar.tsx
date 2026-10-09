@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import GrowVikaLogo from "@/components/brand/GrowVikaLogo";
 import { LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getPageMeta, navForRole } from "@/lib/nav";
@@ -39,10 +40,11 @@ export function SidebarNav({
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500",
+              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400",
+              "relative",
               active
-                ? "bg-indigo-50 text-indigo-700"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                ? "bg-white/10 text-white before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-[#3f5bff]"
+                : "text-slate-300 hover:bg-white/5 hover:text-white",
               collapsed && "justify-center px-2"
             )}
           >
@@ -57,8 +59,8 @@ export function SidebarNav({
         onClick={onLogout}
         title={collapsed ? "Logout" : undefined}
         className={cn(
-          "mt-auto flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-red-50 hover:text-red-700",
-          "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500",
+          "mt-auto flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-red-500/15 hover:text-red-300",
+          "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400",
           collapsed && "justify-center px-2"
         )}
       >
@@ -71,15 +73,8 @@ export function SidebarNav({
 
 export function BrandMark({ collapsed }: { collapsed?: boolean }) {
   return (
-    <div className={cn("flex items-center gap-2.5 px-4 py-4", collapsed && "justify-center px-2")}>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-sm font-semibold text-white">
-        W
-      </span>
-      {!collapsed && (
-        <span className="truncate text-sm font-semibold text-slate-900">
-          WhatsApp CMS
-        </span>
-      )}
+    <div className={cn("flex items-center px-5 py-5", collapsed && "justify-center px-2")}>
+      <GrowVikaLogo tone="dark" mark={collapsed} className={collapsed ? "text-2xl" : "text-[19px]"} />
     </div>
   );
 }
@@ -102,20 +97,20 @@ export default function Sidebar({
         // Sticky + full viewport height, same idea as the top header (which is
         // "sticky top-0") — the nav stays pinned in place while the page
         // content scrolls, instead of scrolling away with it.
-        "sticky top-0 hidden h-screen shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col",
+        "sticky top-0 hidden h-screen shrink-0 border-r border-white/5 bg-[#050a1a] lg:flex lg:flex-col",
         collapsed ? "lg:w-[76px]" : "lg:w-64"
       )}
     >
       <BrandMark collapsed={collapsed} />
       {!collapsed && (
-        <p className="px-4 pb-2 text-xs text-slate-400">{roleLabel(user.role)}</p>
+        <p className="px-5 pb-2 text-xs text-slate-400">{roleLabel(user.role)}</p>
       )}
       <SidebarNav role={user.role} collapsed={collapsed} onLogout={onLogout} />
       <button
         type="button"
         onClick={onToggle}
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        className="m-2 flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500"
+        className="m-2 flex items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 hover:bg-white/5 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
       >
         {collapsed ? (
           <PanelLeftOpen className="h-4 w-4" />

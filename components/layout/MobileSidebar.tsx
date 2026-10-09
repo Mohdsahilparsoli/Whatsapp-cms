@@ -23,20 +23,20 @@ export default function MobileSidebar({
         role="dialog"
         aria-modal="true"
         aria-label="Navigation"
-        className="absolute inset-y-0 left-0 flex w-72 flex-col bg-white shadow-xl"
+        className="absolute inset-y-0 left-0 flex w-72 flex-col bg-[#050a1a] shadow-xl"
       >
-        <div className="flex items-center justify-between border-b border-slate-200 pr-2">
+        <div className="flex items-center justify-between border-b border-white/10 pr-2">
           <BrandMark />
           <button
             type="button"
             onClick={onClose}
             aria-label="Close navigation"
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="px-4 pt-3 text-xs text-slate-400">{roleLabel(user.role)}</p>
+        <p className="px-5 pt-3 text-xs text-slate-400">{roleLabel(user.role)}</p>
         <SidebarNav role={user.role} onNavigate={onClose} onLogout={onLogout} />
       </aside>
     </div>

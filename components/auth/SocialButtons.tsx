@@ -40,17 +40,17 @@ export default function SocialButtons({ verb = "Continue" }: { verb?: "Continue"
             key={p.id}
             href={`/api/auth/oauth/${p.id}`}
             aria-label={`${verb} with ${p.label}`}
-            className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[#d3dcd8] bg-white text-sm font-medium text-[#24342f] transition-colors hover:border-[#9db0a9] hover:bg-[#f4f7f6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0e3b31]"
+            className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[#d6d9e5] bg-white text-sm font-medium text-[#2f3752] transition-colors hover:border-[#9ba3c0] hover:bg-[#f1f2f8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#3f55f0]"
           >
             {p.icon}
             <span className="hidden sm:inline">{p.label}</span>
           </a>
         ))}
       </div>
-      <div className="my-6 flex items-center gap-3 text-xs text-[#7b8b86]" role="separator">
-        <span className="h-px flex-1 bg-[#dfe6e3]" />
+      <div className="my-6 flex items-center gap-3 text-xs text-[#8f96ae]" role="separator">
+        <span className="h-px flex-1 bg-[#dfe2eb]" />
         or with your email
-        <span className="h-px flex-1 bg-[#dfe6e3]" />
+        <span className="h-px flex-1 bg-[#dfe2eb]" />
       </div>
     </div>
   );

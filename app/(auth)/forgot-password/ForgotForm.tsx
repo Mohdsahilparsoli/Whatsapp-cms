@@ -34,8 +34,8 @@ export default function ForgotForm() {
   if (sent) {
     return (
       <AuthShell title="Check your email" footer={<AuthLink href="/login">Back to sign in</AuthLink>}>
-        <div className="flex gap-3 rounded-xl border border-[#d3dcd8] bg-white p-4 text-sm leading-relaxed text-[#24342f]">
-          <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#0b7a57]" />
+        <div className="flex gap-3 rounded-xl border border-[#d6d9e5] bg-white p-4 text-sm leading-relaxed text-[#2f3752]">
+          <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#3f55f0]" />
           <p>
             If an account matches <strong>{identifier.trim()}</strong>, a reset link is on its way. It works once and
             expires in 60 minutes. Check spam if you don&apos;t see it.

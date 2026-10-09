@@ -80,17 +80,17 @@ export default function LoginForm({ initialError = null }: { initialError?: stri
           error={fieldErrors.password}
           placeholder="Enter your password"
           right={
-            <Link href="/forgot-password" className="text-sm font-medium text-[#0b7a57] underline-offset-4 hover:underline">
+            <Link href="/forgot-password" className="text-sm font-medium text-[#3f55f0] underline-offset-4 hover:underline">
               Forgot password?
             </Link>
           }
         />
-        <label className="flex select-none items-center gap-2.5 text-sm text-[#24342f]">
+        <label className="flex select-none items-center gap-2.5 text-sm text-[#2f3752]">
           <input
             type="checkbox"
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
-            className="h-4 w-4 rounded border-[#b9c7c1] accent-[#0e3b31]"
+            className="h-4 w-4 rounded border-[#c6cad9] accent-[#3f55f0]"
           />
           Keep me signed in
         </label>

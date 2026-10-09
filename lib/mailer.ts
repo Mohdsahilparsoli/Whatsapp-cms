@@ -30,10 +30,10 @@ export function passwordResetEmail(name: string, link: string) {
   return {
     subject: "Reset your password",
     text: `Hi ${safeName},\n\nUse this link to set a new password. It works once and expires in 60 minutes:\n${link}\n\nIf you didn't ask for this, you can ignore this email — your password stays the same.`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;color:#0c1b17">
-<h2 style="margin:0 0 12px">Reset your password</h2>
+    html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;color:#0b1124">
+<div style="font-weight:800;font-size:20px;letter-spacing:-0.03em;margin-bottom:20px">GrowVika<span style="color:#3f5bff">&#9632;</span></div><h2 style="margin:0 0 12px">Reset your password</h2>
 <p>Hi ${safeName}, use the button below to set a new password. The link works once and expires in 60 minutes.</p>
-<p style="margin:24px 0"><a href="${link}" style="background:#0e3b31;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Set a new password</a></p>
+<p style="margin:24px 0"><a href="${link}" style="background:#3f55f0;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Set a new password</a></p>
 <p style="font-size:13px;color:#5b6b66">If you didn't ask for this, ignore this email — your password stays the same.</p></div>`,
   };
 }

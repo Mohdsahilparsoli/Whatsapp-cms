@@ -98,7 +98,7 @@ export default function MetaAnalyticsCard() {
     return groups.map((g) => ({
       label: g.label,
       values: [
-        { key: "Sent", value: g.sent, color: "#6366f1" },
+        { key: "Sent", value: g.sent, color: "#3f55f0" },
         { key: "Delivered", value: g.delivered, color: "#10b981" },
       ],
     }));
@@ -154,7 +154,7 @@ export default function MetaAnalyticsCard() {
           title={data.days > 30 ? "Messages per week (Meta)" : "Messages per day (Meta)"}
           data={chartData}
           legend={[
-            { key: "sent", label: "Sent", color: "#6366f1" },
+            { key: "sent", label: "Sent", color: "#3f55f0" },
             { key: "delivered", label: "Delivered", color: "#10b981" },
           ]}
         />

@@ -202,13 +202,13 @@ export default function ReportsPage() {
                 data={dailyStats.map((day) => ({
                   label: day.label,
                   values: [
-                    { key: "Sent", value: day.sent, color: "#6366f1" },
+                    { key: "Sent", value: day.sent, color: "#3f55f0" },
                     { key: "Delivered", value: day.delivered, color: "#10b981" },
                     { key: "Read", value: day.read, color: "#0ea5e9" },
                   ],
                 }))}
                 legend={[
-                  { key: "sent", label: "Sent", color: "#6366f1" },
+                  { key: "sent", label: "Sent", color: "#3f55f0" },
                   { key: "delivered", label: "Delivered", color: "#10b981" },
                   { key: "read", label: "Read", color: "#0ea5e9" },
                 ]}
