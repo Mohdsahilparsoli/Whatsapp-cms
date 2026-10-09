@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { roleLabel, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { BrandMark, SidebarNav } from "./Sidebar";
 
 export default function MobileSidebar({
@@ -36,7 +36,6 @@ export default function MobileSidebar({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="px-5 pt-3 text-xs text-slate-400">{roleLabel(user.role)}</p>
         <SidebarNav role={user.role} onNavigate={onClose} onLogout={onLogout} />
       </aside>
     </div>

@@ -106,7 +106,7 @@ export default function SuperAdminDashboard() {
   return (
     <div>
       <PageHeader
-        title="Super Admin dashboard"
+        title="Platform overview"
         description="Platform-wide view of client accounts, subscriptions, and messaging volume."
         actions={
           <Link href="/clients">

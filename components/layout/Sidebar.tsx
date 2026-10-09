@@ -6,7 +6,7 @@ import GrowVikaLogo from "@/components/brand/GrowVikaLogo";
 import { LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getPageMeta, navForRole } from "@/lib/nav";
-import { roleLabel, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import type { Role } from "@/types";
 
 export function SidebarNav({
@@ -102,9 +102,6 @@ export default function Sidebar({
       )}
     >
       <BrandMark collapsed={collapsed} />
-      {!collapsed && (
-        <p className="px-5 pb-2 text-xs text-slate-400">{roleLabel(user.role)}</p>
-      )}
       <SidebarNav role={user.role} collapsed={collapsed} onLogout={onLogout} />
       <button
         type="button"

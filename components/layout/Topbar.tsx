@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, ChevronRight, Menu, User } from "lucide-react";
 import { getPageMeta } from "@/lib/nav";
-import { roleLabel, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import TrialReminder, {
   TrialReminderCompact,
 } from "@/components/subscription/TrialReminder";
@@ -136,7 +136,7 @@ export default function Topbar({
           <span className="hidden text-left sm:block">
             <span className="block text-xs font-medium text-slate-800">{user?.name}</span>
             <span className="block text-[11px] text-slate-400">
-              {user ? roleLabel(user.role) : ""}
+              {user?.email ?? ""}
             </span>
           </span>
         </button>

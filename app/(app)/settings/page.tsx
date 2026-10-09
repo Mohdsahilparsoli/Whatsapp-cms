@@ -6,7 +6,7 @@ import Card, { CardHeader } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Tabs from "@/components/ui/Tabs";
 import FormField, { SelectField } from "@/components/ui/FormField";
-import { roleLabel, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import ApiKeysCard from "@/components/settings/ApiKeysCard";
 import type { CmsPrefs, NotificationPrefs } from "@/types";
 
@@ -148,7 +148,7 @@ export default function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        description={`Signed in as ${user?.name ?? ""} · ${user ? roleLabel(user.role) : ""}`}
+        description={`Signed in as ${user?.name ?? ""}`}
       />
 
       {toast && (

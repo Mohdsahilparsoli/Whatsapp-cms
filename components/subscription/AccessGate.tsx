@@ -44,7 +44,7 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
         className="mb-5"
       >
         {suspended
-          ? "This account has been suspended by Super Admin. Paid CMS features are unavailable until it is reactivated."
+          ? "This account has been suspended. Paid CMS features are unavailable until it is reactivated."
           : `Your ${current.isTrial ? "free trial" : "plan"} ended on ${formatDate(
               current.expiryDate
             )}. Choose a plan to restore access to this page.`}
@@ -56,7 +56,7 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
           title={`${meta.title} is locked`}
           description={
             suspended
-              ? "Contact your Super Admin to reactivate this account."
+              ? "Contact GrowVika support to reactivate this account."
               : "Your contacts, templates, and campaigns are safe. Pick a plan to unlock this page again."
           }
           action={

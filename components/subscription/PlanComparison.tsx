@@ -12,7 +12,7 @@ export default function PlanComparison({
     <Card>
       <CardHeader
         title="Plan comparison"
-        description="Indicative capabilities per plan — Super Admin can configure the real limits later."
+        description="Indicative capabilities per plan — limits may change."
       />
       <div className="w-full overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-left text-sm">

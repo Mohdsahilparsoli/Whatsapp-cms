@@ -229,7 +229,7 @@ function ClientSubscriptionPanel({
 
       {suspended && (
         <InlineAlert tone="error" title="Subscription Suspended">
-          Super Admin has suspended this account. Paid CMS features are
+          This account has been suspended. Paid CMS features are
           unavailable until it is reactivated.
         </InlineAlert>
       )}
