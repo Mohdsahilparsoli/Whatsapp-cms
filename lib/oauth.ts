@@ -26,7 +26,7 @@ function creds(provider: OAuthProvider) {
     return id && secret ? { id, secret } : null;
   }
   if (provider === "facebook") {
-    const id = process.env.FACEBOOK_APP_ID ?? process.env.META_APP_ID;
+    const id = process.env.FACEBOOK_APP_ID ?? process.env.META_APP_ID ?? process.env.NEXT_PUBLIC_META_APP_ID;
     const secret = process.env.FACEBOOK_APP_SECRET ?? process.env.META_APP_SECRET;
     return id && secret ? { id, secret } : null;
   }
