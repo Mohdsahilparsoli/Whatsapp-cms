@@ -23,7 +23,7 @@ export default function GrowVikaLogo({
       )}
     >
       {mark ? "G" : "GrowVika"}
-      <span aria-hidden className="ml-[0.05em] block h-[0.2em] w-[7px] shrink-0 rounded-[0.03em] bg-[#3f5bff]" />
+      <span aria-hidden className="ml-[0.05em] block h-[0.2em] w-[0.3em] shrink-0 rounded-[0.03em] bg-[#3f5bff]" />
     </span>
   );
 }
